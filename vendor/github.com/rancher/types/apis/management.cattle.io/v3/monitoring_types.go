@@ -36,6 +36,42 @@ const (
 	MonitoringConditionMetricExpressionDeployed  condition.Cond = "MetricExpressionDeployed"
 )
 
+type IstioProjectMonitorGraph struct {
+	types.Namespaced
+
+	metav1.TypeMeta `json:",inline"`
+	// Standard object’s metadata. More info:
+	// https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec IstioProjectMonitorGraphSpec `json:"spec"`
+}
+
+type IstioClusterMonitorGraph struct {
+	types.Namespaced
+
+	metav1.TypeMeta `json:",inline"`
+	// Standard object’s metadata. More info:
+	// https://github.com/kubernetes/community/blob/master/contributors/devel/api-conventions.md#metadata
+	metav1.ObjectMeta `json:"metadata,omitempty"`
+
+	Spec IstioClusterMonitorGraphSpec `json:"spec"`
+}
+
+type IstioClusterMonitorGraphSpec struct {
+	ClusterName         string `json:"clusterName" norman:"type=reference[cluster]"`
+	ResourceType        string `json:"resourceType,omitempty"  norman:"type=enum,options=mesh|cluster"`
+	DisplayResourceType string `json:"displayResourceType,omitempty" norman:"type=enum,options=mesh|cluster"`
+	CommonMonitorGraphSpec
+}
+
+type IstioProjectMonitorGraphSpec struct {
+	ProjectName         string `json:"projectName" norman:"type=reference[project]"`
+	ResourceType        string `json:"resourceType,omitempty" norman:"type=enum,options=mesh|project|service"`
+	DisplayResourceType string `json:"displayResourceType,omitempty" norman:"type=enum,options=mesh|project|service"`
+	CommonMonitorGraphSpec
+}
+
 type ClusterMonitorGraph struct {
 	types.Namespaced
 
@@ -60,7 +96,7 @@ type ProjectMonitorGraph struct {
 
 type ClusterMonitorGraphSpec struct {
 	ClusterName         string `json:"clusterName" norman:"type=reference[cluster]"`
-	ResourceType        string `json:"resourceType,omitempty"  norman:"type=enum,options=node|cluster|etcd|apiserver|scheduler|controllermanager|fluentd"`
+	ResourceType        string `json:"resourceType,omitempty"  norman:"type=enum,options=node|cluster|etcd|apiserver|scheduler|controllermanager|fluentd|istiocluster|istioproject|istioservice"`
 	DisplayResourceType string `json:"displayResourceType,omitempty" norman:"type=enum,options=node|cluster|etcd|kube-component|rancher-component"`
 	CommonMonitorGraphSpec
 }
@@ -118,6 +154,26 @@ type QueryClusterGraphOutput struct {
 
 type QueryClusterGraph struct {
 	GraphName string        `json:"graphID" norman:"type=reference[clusterMonitorGraph]"`
+	Series    []*TimeSeries `json:"series" norman:"type=array[reference[timeSeries]]"`
+}
+
+type QueryIstioClusterGraphOutput struct {
+	Type string                   `json:"type,omitempty"`
+	Data []QueryIstioClusterGraph `json:"data,omitempty"`
+}
+
+type QueryIstioClusterGraph struct {
+	GraphName string        `json:"graphID" norman:"type=reference[istioClusterMonitorGraph]"`
+	Series    []*TimeSeries `json:"series" norman:"type=array[reference[timeSeries]]"`
+}
+
+type QueryIstioProjectGraphOutput struct {
+	Type string                   `json:"type,omitempty"`
+	Data []QueryIstioProjectGraph `json:"data,omitempty"`
+}
+
+type QueryIstioProjectGraph struct {
+	GraphName string        `json:"graphID" norman:"type=reference[istioProjectMonitorGraph]"`
 	Series    []*TimeSeries `json:"series" norman:"type=array[reference[timeSeries]]"`
 }
 

@@ -6,13 +6,14 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/ioutil"
-	"k8s.io/api/core/v1"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"time"
+
+	"k8s.io/api/core/v1"
 
 	"github.com/rancher/rancher/pkg/controllers/management/compose/common"
 	"github.com/rancher/rancher/pkg/ref"
@@ -42,23 +43,23 @@ const (
 func Register(ctx context.Context, user *config.UserContext, kubeConfigGetter common.KubeConfigGetter) {
 	appClient := user.Management.Project.Apps("")
 	stackLifecycle := &Lifecycle{
-		KubeConfigGetter:      kubeConfigGetter,
-		SystemAccountManager:  systemaccount.NewManager(user.Management),
-		TokenClient:           user.Management.Management.Tokens(""),
-		UserClient:            user.Management.Management.Users(""),
-		UserManager:           user.Management.UserManager,
-		K8sClient:             user.K8sClient,
-		TemplateVersionClient: user.Management.Management.CatalogTemplateVersions(""),
-		TemplateClient:        user.Management.Management.CatalogTemplates(""),
-		CatalogLister:         user.Management.Management.Catalogs("").Controller().Lister(),
-		ClusterCatalogLister:  user.Management.Management.ClusterCatalogs("").Controller().Lister(),
-		ProjectCatalogLister:  user.Management.Management.ProjectCatalogs("").Controller().Lister(),
-		ListenConfigClient:    user.Management.Management.ListenConfigs(""),
-		ClusterName:           user.ClusterName,
-		AppRevisionGetter:     user.Management.Project,
-		AppGetter:             user.Management.Project,
-		NsLister:              user.Core.Namespaces("").Controller().Lister(),
-		NsClient:              user.Core.Namespaces(""),
+		KubeConfigGetter:         kubeConfigGetter,
+		SystemAccountManager:     systemaccount.NewManager(user.Management),
+		TokenClient:              user.Management.Management.Tokens(""),
+		UserClient:               user.Management.Management.Users(""),
+		UserManager:              user.Management.UserManager,
+		K8sClient:                user.K8sClient,
+		TemplateVersionClient:    user.Management.Management.CatalogTemplateVersions(""),
+		TemplateClient:           user.Management.Management.CatalogTemplates(""),
+		CatalogLister:            user.Management.Management.Catalogs("").Controller().Lister(),
+		ClusterCatalogLister:     user.Management.Management.ClusterCatalogs("").Controller().Lister(),
+		ProjectCatalogLister:     user.Management.Management.ProjectCatalogs("").Controller().Lister(),
+		ListenConfigClient:       user.Management.Management.ListenConfigs(""),
+		ClusterName:              user.ClusterName,
+		AppRevisionGetter:        user.Management.Project,
+		AppGetter:                user.Management.Project,
+		NsLister:                 user.Core.Namespaces("").Controller().Lister(),
+		NsClient:                 user.Core.Namespaces(""),
 	}
 	appClient.AddClusterScopedLifecycle(ctx, "helm-controller", user.ClusterName, stackLifecycle)
 
@@ -66,23 +67,27 @@ func Register(ctx context.Context, user *config.UserContext, kubeConfigGetter co
 }
 
 type Lifecycle struct {
-	KubeConfigGetter      common.KubeConfigGetter
-	SystemAccountManager  *systemaccount.Manager
-	UserManager           user.Manager
-	TokenClient           mgmtv3.TokenInterface
-	UserClient            mgmtv3.UserInterface
-	TemplateVersionClient mgmtv3.CatalogTemplateVersionInterface
-	TemplateClient        mgmtv3.CatalogTemplateInterface
-	CatalogLister         mgmtv3.CatalogLister
-	ClusterCatalogLister  mgmtv3.ClusterCatalogLister
-	ProjectCatalogLister  mgmtv3.ProjectCatalogLister
-	K8sClient             kubernetes.Interface
-	ListenConfigClient    mgmtv3.ListenConfigInterface
-	ClusterName           string
-	AppRevisionGetter     v3.AppRevisionsGetter
-	AppGetter             v3.AppsGetter
-	NsLister              corev1.NamespaceLister
-	NsClient              corev1.NamespaceInterface
+	KubeConfigGetter         common.KubeConfigGetter
+	SystemAccountManager     *systemaccount.Manager
+	UserManager              user.Manager
+	TokenClient              mgmtv3.TokenInterface
+	UserClient               mgmtv3.UserInterface
+	TemplateVersionClient    mgmtv3.CatalogTemplateVersionInterface
+	TemplateClient           mgmtv3.CatalogTemplateInterface
+	CatalogLister            mgmtv3.CatalogLister
+	ClusterCatalogLister     mgmtv3.ClusterCatalogLister
+	ProjectCatalogLister     mgmtv3.ProjectCatalogLister
+	K8sClient                kubernetes.Interface
+	ListenConfigClient       mgmtv3.ListenConfigInterface
+	ClusterName              string
+	AppRevisionGetter        v3.AppRevisionsGetter
+	AppGetter                v3.AppsGetter
+	NsLister                 corev1.NamespaceLister
+	NsClient                 corev1.NamespaceInterface
+	istioClusterGraphClient  mgmtv3.IstioClusterMonitorGraphInterface
+	istioProjectGraphClient  mgmtv3.IstioProjectMonitorGraphInterface
+	istioMonitorMetricClient mgmtv3.MonitorMetricInterface
+	projectGetter            mgmtv3.ProjectInterface
 }
 
 func (l *Lifecycle) Create(obj *v3.App) (runtime.Object, error) {
@@ -196,6 +201,7 @@ func (l *Lifecycle) Updated(obj *v3.App) (runtime.Object, error) {
 	if _, err := l.NsClient.Update(ns); err != nil {
 		return result, err
 	}
+
 	return result, nil
 }
 
@@ -286,6 +292,7 @@ func (l *Lifecycle) Remove(obj *v3.App) (runtime.Object, error) {
 	if _, err := l.NsClient.Update(ns); err != nil {
 		return obj, err
 	}
+
 	return obj, nil
 }
 

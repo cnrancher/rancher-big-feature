@@ -145,6 +145,7 @@ func InstallCharts(rootDir, port string, obj *v3.App) error {
 		}
 		return errors.Errorf("failed to install app %s. %s", obj.Name, stderrBuf.String())
 	}
+
 	return nil
 }
 

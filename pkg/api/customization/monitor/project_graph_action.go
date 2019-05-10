@@ -16,6 +16,8 @@ import (
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	mgmtclientv3 "github.com/rancher/types/client/management/v3"
 	"github.com/rancher/types/config/dialer"
+	"k8s.io/apimachinery/pkg/fields"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func NewProjectGraphHandler(dialerFactory dialer.Factory, clustermanager *clustermanager.Manager) *ProjectGraphHandler {
@@ -57,41 +59,79 @@ func (h *ProjectGraphHandler) QuerySeriesAction(actionName string, action *types
 		return err
 	}
 
-	prometheusName, prometheusNamespace := monitorutil.ClusterMonitoringInfo()
-	token, err := getAuthToken(userContext, prometheusName, prometheusNamespace)
-	if err != nil {
-		return err
-	}
-
 	reqContext, cancel := context.WithTimeout(context.Background(), prometheusReqTimeout)
 	defer cancel()
 
-	svcName, svcNamespace, svcPort := monitorutil.ClusterPrometheusEndpoint()
-	prometheusQuery, err := NewPrometheusQuery(reqContext, clusterName, token, svcNamespace, svcName, svcPort, h.dialerFactory)
-	if err != nil {
-		return err
-	}
-
-	var graphs []mgmtclientv3.ProjectMonitorGraph
-	err = access.List(apiContext, apiContext.Version, mgmtclientv3.ProjectMonitorGraphType, &types.QueryOptions{Conditions: inputParser.Conditions}, &graphs)
-	if err != nil {
-		return err
-	}
-
-	mgmtClient := h.clustermanager.ScaledContext.Management
+	var svcName, svcNamespace, svcPort, token string
 	var queries []*PrometheusQuery
-	for _, graph := range graphs {
-		g := graph
-		_, projectName := ref.Parse(graph.ProjectID)
-		refName := getRefferenceGraphName(projectName, graph.Name)
-		monitorMetrics, err := graph2Metrics(userContext, mgmtClient, clusterName, g.ResourceType, refName, graph.MetricsSelector, graph.DetailsMetricsSelector, inputParser.Input.MetricParams, inputParser.Input.IsDetails)
+	if inputParser.Input.Filters["resourceType"] == "istioproject" ||
+		inputParser.Input.Filters["resourceType"] == "istioservice" {
+		if inputParser.Input.MetricParams["namespace"] == "" {
+			return fmt.Errorf("no namespace found")
+		}
+		if inputParser.Input.MetricParams["service"] == "" {
+			inputParser.Input.MetricParams["service"] = ".*"
+		}
+
+		svcName, svcNamespace, svcPort = monitorutil.IstioPrometheusEndpoint()
+
+		mgmtClient := h.clustermanager.ScaledContext.Management
+
+		fieldSelect := fields.Nothing()
+		if inputParser.Input.Filters["resourceType"] == "istioproject" {
+			fieldSelect = fields.OneTermEqualSelector("spec.resourceType", "istioproject")
+		} else if inputParser.Input.Filters["resourceType"] == "istioservice" {
+			fieldSelect = fields.OneTermEqualSelector("spec.resourceType", "istioservice")
+		}
+
+		istioGraphs, err := mgmtClient.ClusterMonitorGraphs(clusterName).List(metav1.ListOptions{FieldSelector: fieldSelect.String()})
+		if err != nil {
+			return fmt.Errorf("list istio graph failed, %v", err)
+		}
+
+		var queries []*PrometheusQuery
+		for _, graph := range istioGraphs.Items {
+			_, projectName := ref.Parse(inputParser.Input.Filters["projectId"])
+			refName := getRefferenceGraphName(projectName, graph.Name)
+			monitorMetrics, err := graph2Metrics(userContext, mgmtClient, clusterName, graph.Spec.ResourceType, refName, graph.Spec.MetricsSelector, graph.Spec.DetailsMetricsSelector, inputParser.Input.MetricParams, inputParser.Input.IsDetails)
+			if err != nil {
+				return err
+			}
+
+			queries = append(queries, metrics2PrometheusQuery(monitorMetrics, inputParser.Start, inputParser.End, inputParser.Step, isInstanceGraph(graph.Spec.GraphType))...)
+		}
+	} else {
+		prometheusName, prometheusNamespace := monitorutil.ClusterMonitoringInfo()
+		token, err = getAuthToken(userContext, prometheusName, prometheusNamespace)
+		if err != nil {
+			return err
+		}
+		svcName, svcNamespace, svcPort = monitorutil.ClusterPrometheusEndpoint()
+
+		var graphs []mgmtclientv3.ProjectMonitorGraph
+		err = access.List(apiContext, apiContext.Version, mgmtclientv3.ProjectMonitorGraphType, &types.QueryOptions{Conditions: inputParser.Conditions}, &graphs)
 		if err != nil {
 			return err
 		}
 
-		queries = append(queries, metrics2PrometheusQuery(monitorMetrics, inputParser.Start, inputParser.End, inputParser.Step, isInstanceGraph(g.GraphType))...)
+		mgmtClient := h.clustermanager.ScaledContext.Management
+		for _, graph := range graphs {
+			g := graph
+			_, projectName := ref.Parse(graph.ProjectID)
+			refName := getRefferenceGraphName(projectName, graph.Name)
+			monitorMetrics, err := graph2Metrics(userContext, mgmtClient, clusterName, g.ResourceType, refName, graph.MetricsSelector, graph.DetailsMetricsSelector, inputParser.Input.MetricParams, inputParser.Input.IsDetails)
+			if err != nil {
+				return err
+			}
+
+			queries = append(queries, metrics2PrometheusQuery(monitorMetrics, inputParser.Start, inputParser.End, inputParser.Step, isInstanceGraph(g.GraphType))...)
+		}
 	}
 
+	prometheusQuery, err := NewPrometheusQuery(reqContext, clusterName, token, svcNamespace, svcName, svcPort, h.dialerFactory)
+	if err != nil {
+		return err
+	}
 	seriesSlice, err := prometheusQuery.Do(queries)
 	if err != nil {
 		return fmt.Errorf("query series failed, %v", err)
