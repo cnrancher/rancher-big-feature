@@ -49,7 +49,11 @@ func (cd *clusterDeploy) sync(key string, cluster *v3.Cluster) (runtime.Object, 
 		err, updateErr error
 	)
 
-	if key == "" || cluster == nil {
+	if cluster == nil || cluster.DeletionTimestamp != nil {
+		// remove the system account user created for this cluster
+		if err := cd.systemAccountManager.RemoveSystemAccount(key); err != nil {
+			return nil, err
+		}
 		return nil, nil
 	}
 
@@ -186,7 +190,7 @@ func (cd *clusterDeploy) setNetworkPolicyAnn(cluster *v3.Cluster) error {
 }
 
 func (cd *clusterDeploy) getKubeConfig(cluster *v3.Cluster) (*clientcmdapi.Config, error) {
-	user, err := cd.systemAccountManager.GetSystemUser(cluster)
+	user, err := cd.systemAccountManager.GetSystemUser(cluster.Name)
 	if err != nil {
 		return nil, err
 	}

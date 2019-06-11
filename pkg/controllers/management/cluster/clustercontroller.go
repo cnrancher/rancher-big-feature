@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
+	errorsutil "github.com/pkg/errors"
 	"github.com/rancher/kontainer-engine/service"
 	"github.com/rancher/kontainer-engine/types"
 	"github.com/rancher/rancher/pkg/controllers/management/clusterprovisioner"
@@ -14,6 +15,7 @@ import (
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -74,7 +76,11 @@ func (c *controller) capsSync(key string, cluster *v3.Cluster) (runtime.Object, 
 
 		kontainerDriver, err := c.kontainerDriverLister.Get("", driverName)
 		if err != nil {
-			return nil, fmt.Errorf("error getting kontainer driver: %v", err)
+			if !errors.IsNotFound(err) {
+				return nil, errorsutil.WithMessage(err, fmt.Sprintf("error getting kontainer driver: %v", driverName))
+			}
+			//do not return not found errors since the driver may have been deleted
+			return nil, nil
 		}
 
 		driver := service.NewEngineService(
@@ -108,8 +114,6 @@ func (c *controller) RKECapabilities(capabilities v3.Capabilities, rkeConfig v3.
 		capabilities.LoadBalancerCapabilities = c.L4Capability(true, ElasticLoadBalancer, []string{"TCP"}, true)
 	case azure.AzureCloudProviderName:
 		capabilities.LoadBalancerCapabilities = c.L4Capability(true, AzureL4LB, []string{"TCP", "UDP"}, true)
-	default:
-		capabilities.LoadBalancerCapabilities = c.L4Capability(false, "", []string{}, false)
 	}
 	// only if not custom, non custom clusters have nodepools set
 	nodes, err := c.nodeLister.List(clusterName, labels.Everything())
@@ -125,7 +129,9 @@ func (c *controller) RKECapabilities(capabilities v3.Capabilities, rkeConfig v3.
 
 	ingressController := c.IngressCapability(true, NginxIngressProvider, false)
 	capabilities.IngressCapabilities = []v3.IngressCapabilities{ingressController}
-	if rkeConfig.Services.KubeAPI.ExtraArgs["service-node-port-range"] != "" {
+	if rkeConfig.Services.KubeAPI.ServiceNodePortRange != "" {
+		capabilities.NodePortRange = rkeConfig.Services.KubeAPI.ServiceNodePortRange
+	} else if rkeConfig.Services.KubeAPI.ExtraArgs["service-node-port-range"] != "" {
 		capabilities.NodePortRange = rkeConfig.Services.KubeAPI.ExtraArgs["service-node-port-range"]
 	}
 

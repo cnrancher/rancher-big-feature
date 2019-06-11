@@ -29,7 +29,7 @@ import (
 	"github.com/rancher/types/config"
 )
 
-func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.ScaledContext, clusterManager *clustermanager.Manager, auditLogWriter *audit.LogWriter) error {
+func Start(ctx context.Context, httpPort, httpsPort int, localClusterEnabled bool, scaledContext *config.ScaledContext, clusterManager *clustermanager.Manager, auditLogWriter *audit.LogWriter) error {
 	tokenAPI, err := tokens.NewAPIHandler(ctx, scaledContext)
 	if err != nil {
 		return err
@@ -42,7 +42,7 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 
 	k8sProxy := k8sProxyPkg.New(scaledContext, scaledContext.Dialer)
 
-	managementAPI, err := managementapi.New(ctx, scaledContext, clusterManager, k8sProxy)
+	managementAPI, err := managementapi.New(ctx, scaledContext, clusterManager, k8sProxy, localClusterEnabled)
 	if err != nil {
 		return err
 	}
@@ -67,6 +67,8 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 
 	samlRoot := saml.AuthHandler()
 	chain := responsewriter.NewMiddlewareChain(responsewriter.Gzip, responsewriter.NoCache, responsewriter.DenyFrameOptions, responsewriter.ContentType, ui.UI)
+	chainGzip := responsewriter.NewMiddlewareChain(responsewriter.Gzip, responsewriter.ContentType)
+
 	root.Handle("/", chain.Handler(managementAPI))
 	root.PathPrefix("/v3-public").Handler(publicAPI)
 	root.Handle("/v3/import/{token}.yaml", http.HandlerFunc(clusterregistrationtokens.ClusterImportHandler))
@@ -76,7 +78,7 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 	root.Handle("/v3/settings/cacerts", rawAuthedAPIs).Methods(http.MethodGet)
 	root.Handle("/v3/settings/first-login", rawAuthedAPIs).Methods(http.MethodGet)
 	root.Handle("/v3/settings/ui-pl", rawAuthedAPIs).Methods(http.MethodGet)
-	root.PathPrefix("/v3").Handler(auditHandler)
+	root.PathPrefix("/v3").Handler(chainGzip.Handler(auditHandler))
 	root.PathPrefix("/hooks").Handler(webhookHandler)
 	root.PathPrefix("/k8s/clusters/").Handler(auditHandler)
 	root.PathPrefix("/meta").Handler(auditHandler)

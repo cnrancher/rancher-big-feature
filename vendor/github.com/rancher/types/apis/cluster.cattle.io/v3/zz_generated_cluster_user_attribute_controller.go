@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -28,7 +29,17 @@ var (
 
 		Kind: ClusterUserAttributeGroupVersionKind.Kind,
 	}
+
+	ClusterUserAttributeGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "clusteruserattributes",
+	}
 )
+
+func init() {
+	resource.Put(ClusterUserAttributeGroupVersionResource)
+}
 
 func NewClusterUserAttribute(namespace, name string, obj ClusterUserAttribute) *ClusterUserAttribute {
 	obj.APIVersion, obj.Kind = ClusterUserAttributeGroupVersionKind.ToAPIVersionAndKind()
@@ -40,7 +51,7 @@ func NewClusterUserAttribute(namespace, name string, obj ClusterUserAttribute) *
 type ClusterUserAttributeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ClusterUserAttribute
+	Items           []ClusterUserAttribute `json:"items"`
 }
 
 type ClusterUserAttributeHandlerFunc func(key string, obj *ClusterUserAttribute) (runtime.Object, error)

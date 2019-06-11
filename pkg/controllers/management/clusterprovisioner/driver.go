@@ -9,6 +9,8 @@ import (
 	"github.com/rancher/rancher/pkg/clusterprovisioninglogger"
 	"github.com/rancher/rke/services"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
+	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -29,7 +31,7 @@ func (p *Provisioner) driverCreate(cluster *v3.Cluster, spec v3.ClusterSpec) (ap
 		return "", "", "", err
 	}
 
-	return p.Driver.Create(ctx, cluster.Name, kontainerDriver, spec)
+	return p.engineService.Create(ctx, cluster.Name, kontainerDriver, spec)
 }
 
 func (p *Provisioner) getKontainerDriver(spec v3.ClusterSpec) (*v3.KontainerDriver, error) {
@@ -75,10 +77,10 @@ func (p *Provisioner) driverUpdate(cluster *v3.Cluster, spec v3.ClusterSpec) (ap
 		return "", "", "", err
 	}
 
-	return p.Driver.Update(ctx, cluster.Name, kontainerDriver, spec)
+	return p.engineService.Update(ctx, cluster.Name, kontainerDriver, spec)
 }
 
-func (p *Provisioner) driverRemove(cluster *v3.Cluster) error {
+func (p *Provisioner) driverRemove(cluster *v3.Cluster, forceRemove bool) error {
 	ctx, logger := clusterprovisioninglogger.NewLogger(p.Clusters, cluster, v3.ClusterConditionProvisioned)
 	defer logger.Close()
 
@@ -91,10 +93,14 @@ func (p *Provisioner) driverRemove(cluster *v3.Cluster) error {
 
 		kontainerDriver, err := p.getKontainerDriver(spec)
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				logrus.Warnf("Could not find kontainer driver for cluster removal [%v]", err)
+				return nil, nil
+			}
 			return nil, err
 		}
 
-		return cluster, p.Driver.Remove(ctx, cluster.Name, kontainerDriver, spec)
+		return cluster, p.engineService.Remove(ctx, cluster.Name, kontainerDriver, spec, forceRemove)
 	})
 
 	return err
@@ -118,7 +124,7 @@ func (p *Provisioner) driverRestore(cluster *v3.Cluster, spec v3.ClusterSpec) (s
 	}
 
 	snapshot := strings.Split(spec.RancherKubernetesEngineConfig.Restore.SnapshotName, ":")[1]
-	return p.Driver.ETCDRestore(ctx, cluster.Name, kontainerDriver, spec, snapshot)
+	return p.engineService.ETCDRestore(ctx, cluster.Name, kontainerDriver, spec, snapshot)
 
 }
 
@@ -133,7 +139,7 @@ func (p *Provisioner) generateServiceAccount(cluster *v3.Cluster, spec v3.Cluste
 		return "", err
 	}
 
-	return p.Driver.GenerateServiceAccount(ctx, cluster.Name, kontainerDriver, spec)
+	return p.engineService.GenerateServiceAccount(ctx, cluster.Name, kontainerDriver, spec)
 }
 
 func (p *Provisioner) removeLegacyServiceAccount(cluster *v3.Cluster, spec v3.ClusterSpec) error {
@@ -147,7 +153,7 @@ func (p *Provisioner) removeLegacyServiceAccount(cluster *v3.Cluster, spec v3.Cl
 		return err
 	}
 
-	return p.Driver.RemoveLegacyServiceAccount(ctx, cluster.Name, kontainerDriver, spec)
+	return p.engineService.RemoveLegacyServiceAccount(ctx, cluster.Name, kontainerDriver, spec)
 }
 
 func cleanRKE(spec v3.ClusterSpec) v3.ClusterSpec {

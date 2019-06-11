@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: EndpointsGroupVersionKind.Kind,
 	}
+
+	EndpointsGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "endpoints",
+	}
 )
+
+func init() {
+	resource.Put(EndpointsGroupVersionResource)
+}
 
 func NewEndpoints(namespace, name string, obj v1.Endpoints) *v1.Endpoints {
 	obj.APIVersion, obj.Kind = EndpointsGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewEndpoints(namespace, name string, obj v1.Endpoints) *v1.Endpoints {
 type EndpointsList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Endpoints
+	Items           []v1.Endpoints `json:"items"`
 }
 
 type EndpointsHandlerFunc func(key string, obj *v1.Endpoints) (runtime.Object, error)

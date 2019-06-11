@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: JobGroupVersionKind.Kind,
 	}
+
+	JobGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "jobs",
+	}
 )
+
+func init() {
+	resource.Put(JobGroupVersionResource)
+}
 
 func NewJob(namespace, name string, obj v1.Job) *v1.Job {
 	obj.APIVersion, obj.Kind = JobGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewJob(namespace, name string, obj v1.Job) *v1.Job {
 type JobList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Job
+	Items           []v1.Job `json:"items"`
 }
 
 type JobHandlerFunc func(key string, obj *v1.Job) (runtime.Object, error)

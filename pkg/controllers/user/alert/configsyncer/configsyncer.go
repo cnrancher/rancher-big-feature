@@ -15,26 +15,30 @@ import (
 	"github.com/rancher/rancher/pkg/controllers/user/alert/deployer"
 	"github.com/rancher/rancher/pkg/controllers/user/alert/manager"
 	monitorutil "github.com/rancher/rancher/pkg/monitoring"
+	"github.com/rancher/rancher/pkg/project"
 	"github.com/rancher/rancher/pkg/ref"
-	"k8s.io/apimachinery/pkg/runtime"
-
 	"github.com/rancher/types/apis/core/v1"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
+	projectv3 "github.com/rancher/types/apis/project.cattle.io/v3"
 	"github.com/rancher/types/config"
+
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var (
-	eventGroupInterval = 1
-	eventGroupWait     = 1
+	eventGroupInterval  = 1
+	eventGroupWait      = 1
+	eventRepeatInterval = 525600
 )
 
 func NewConfigSyncer(ctx context.Context, cluster *config.UserContext, alertManager *manager.AlertManager, operatorCRDManager *manager.PromOperatorCRDManager) *ConfigSyncer {
 	return &ConfigSyncer{
+		apps:                    cluster.Management.Project.Apps(metav1.NamespaceAll),
 		secretsGetter:           cluster.Core,
 		clusterAlertGroupLister: cluster.Management.Management.ClusterAlertGroups(cluster.ClusterName).Controller().Lister(),
 		projectAlertGroupLister: cluster.Management.Management.ProjectAlertGroups("").Controller().Lister(),
@@ -50,6 +54,7 @@ func NewConfigSyncer(ctx context.Context, cluster *config.UserContext, alertMana
 }
 
 type ConfigSyncer struct {
+	apps                    projectv3.AppInterface
 	secretsGetter           v1.SecretsGetter
 	projectAlertGroupLister v3.ProjectAlertGroupLister
 	clusterAlertGroupLister v3.ClusterAlertGroupLister
@@ -86,7 +91,18 @@ func (d *ConfigSyncer) NotifierSync(key string, alert *v3.Notifier) (runtime.Obj
 //sync: update the secret which store the configuration of alertmanager given the latest configured notifiers and alerts rules.
 //For each alert, it will generate a route and a receiver in the alertmanager's configuration file, for metric rules it will update operator crd also.
 func (d *ConfigSyncer) sync() error {
-	if d.alertManager.IsDeploy == false {
+	project, err := project.GetSystemProject(d.clusterName, d.projectLister)
+	if err != nil {
+		return err
+	}
+
+	systemProjectName := project.Name
+	isDeployed, err := d.isAppDeploy(systemProjectName)
+	if err != nil {
+		return err
+	}
+
+	if !isDeployed {
 		return nil
 	}
 
@@ -178,11 +194,11 @@ func (d *ConfigSyncer) sync() error {
 	config := manager.GetAlertManagerDefaultConfig()
 	config.Global.PagerdutyURL = "https://events.pagerduty.com/v2/enqueue"
 
-	if err = d.addClusterAlert2Config(config, cAlertsMap, cAlertsKey, notifiers); err != nil {
+	if err = d.addClusterAlert2Config(config, cAlertsMap, cAlertsKey, cAlertGroupsMap, notifiers); err != nil {
 		return err
 	}
 
-	if err = d.addProjectAlert2Config(config, pAlertsMap, pAlertsKey, notifiers); err != nil {
+	if err = d.addProjectAlert2Config(config, pAlertsMap, pAlertsKey, pAlertGroupsMap, notifiers); err != nil {
 		return err
 	}
 
@@ -295,7 +311,7 @@ func (d *ConfigSyncer) addClusterAlert2Operator(clusterDisplayName string, group
 	return d.operatorCRDManager.SyncPrometheusRule(promRule)
 }
 
-func (d *ConfigSyncer) addProjectAlert2Config(config *alertconfig.Config, projectGroups map[string]map[string][]*v3.ProjectAlertRule, keys []string, notifiers []*v3.Notifier) error {
+func (d *ConfigSyncer) addProjectAlert2Config(config *alertconfig.Config, projectGroups map[string]map[string][]*v3.ProjectAlertRule, keys []string, alertGroups map[string]*v3.ProjectAlertGroup, notifiers []*v3.Notifier) error {
 	for _, projectName := range keys {
 		groups := projectGroups[projectName]
 		var groupIDs []string
@@ -306,14 +322,9 @@ func (d *ConfigSyncer) addProjectAlert2Config(config *alertconfig.Config, projec
 
 		for _, groupID := range groupIDs {
 			rules := groups[groupID]
-			_, groupName := ref.Parse(groupID)
-			group, err := d.projectAlertGroupLister.Get(projectName, groupName)
-			if err != nil && !apierrors.IsNotFound(err) {
-				return fmt.Errorf("get project alert group %s:%s failed, %v", projectName, groupName, err)
-			}
-
-			if group == nil {
-				continue
+			group, ok := alertGroups[groupID]
+			if !ok {
+				return fmt.Errorf("get project alert group %s failed", groupID)
 			}
 
 			receiver := &alertconfig.Receiver{Name: groupID}
@@ -322,7 +333,7 @@ func (d *ConfigSyncer) addProjectAlert2Config(config *alertconfig.Config, projec
 
 			if exist {
 				config.Receivers = append(config.Receivers, receiver)
-				r1 := d.newRoute(map[string]string{"group_id": groupID}, group.Spec.GroupWaitSeconds, group.Spec.GroupIntervalSeconds, group.Spec.RepeatIntervalSeconds, []model.LabelName{"group_id"})
+				r1 := d.newRoute(map[string]string{"group_id": groupID}, false, group.Spec.TimingField, []model.LabelName{"group_id"})
 
 				for _, alert := range rules {
 					if alert.Status.AlertState == "inactive" {
@@ -345,27 +356,21 @@ func (d *ConfigSyncer) addProjectAlert2Config(config *alertconfig.Config, projec
 	return nil
 }
 
-func (d *ConfigSyncer) addClusterAlert2Config(config *alertconfig.Config, alerts map[string][]*v3.ClusterAlertRule, keys []string, notifiers []*v3.Notifier) error {
+func (d *ConfigSyncer) addClusterAlert2Config(config *alertconfig.Config, alerts map[string][]*v3.ClusterAlertRule, keys []string, alertGroups map[string]*v3.ClusterAlertGroup, notifiers []*v3.Notifier) error {
 	for _, groupID := range keys {
 		groupRules := alerts[groupID]
-		_, groupName := ref.Parse(groupID)
-
 		receiver := &alertconfig.Receiver{Name: groupID}
 
-		group, err := d.clusterAlertGroupLister.Get(d.clusterName, groupName)
-		if err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("get cluster alert group %s:%s failed, %v", d.clusterName, groupName, err)
-		}
-
-		if group == nil {
-			continue
+		group, ok := alertGroups[groupID]
+		if !ok {
+			return fmt.Errorf("get cluster alert group %s failed", groupID)
 		}
 
 		exist := d.addRecipients(notifiers, receiver, group.Spec.Recipients)
 
 		if exist {
 			config.Receivers = append(config.Receivers, receiver)
-			r1 := d.newRoute(map[string]string{"group_id": groupID}, group.Spec.GroupWaitSeconds, group.Spec.GroupIntervalSeconds, group.Spec.RepeatIntervalSeconds, []model.LabelName{"group_id"})
+			r1 := d.newRoute(map[string]string{"group_id": groupID}, false, group.Spec.TimingField, []model.LabelName{"group_id"})
 			for _, alert := range groupRules {
 				if alert.Status.AlertState == "inactive" {
 					continue
@@ -374,7 +379,13 @@ func (d *ConfigSyncer) addClusterAlert2Config(config *alertconfig.Config, alerts
 				groupBy := getClusterAlertGroupBy(alert.Spec)
 
 				if alert.Spec.EventRule != nil {
-					r2 := d.newRoute(map[string]string{"rule_id": ruleID}, eventGroupWait, eventGroupInterval, alert.Spec.RepeatIntervalSeconds, groupBy)
+					timeFields := v3.TimingField{
+						GroupWaitSeconds:      eventGroupWait,
+						GroupIntervalSeconds:  eventGroupInterval,
+						RepeatIntervalSeconds: eventRepeatInterval,
+					}
+
+					r2 := d.newRoute(map[string]string{"rule_id": ruleID}, false, timeFields, groupBy)
 					d.appendRoute(r1, r2)
 				}
 
@@ -391,11 +402,16 @@ func (d *ConfigSyncer) addClusterAlert2Config(config *alertconfig.Config, alerts
 }
 
 func (d *ConfigSyncer) addRule(ruleID string, route *alertconfig.Route, comm v3.CommonRuleField, groupBy []model.LabelName) {
-	r2 := d.newRoute(map[string]string{"rule_id": ruleID}, comm.GroupWaitSeconds, comm.GroupIntervalSeconds, comm.RepeatIntervalSeconds, groupBy)
+	inherited := true
+	if comm.Inherited != nil {
+		inherited = *comm.Inherited
+	}
+
+	r2 := d.newRoute(map[string]string{"rule_id": ruleID}, inherited, comm.TimingField, groupBy)
 	d.appendRoute(route, r2)
 }
 
-func (d *ConfigSyncer) newRoute(match map[string]string, groupWait, groupInterval, repeatInterval int, groupBy []model.LabelName) *alertconfig.Route {
+func (d *ConfigSyncer) newRoute(match map[string]string, inherited bool, timeFields v3.TimingField, groupBy []model.LabelName) *alertconfig.Route {
 	route := &alertconfig.Route{
 		Continue: true,
 		Receiver: match["group_id"],
@@ -403,14 +419,23 @@ func (d *ConfigSyncer) newRoute(match map[string]string, groupWait, groupInterva
 		GroupBy:  groupBy,
 	}
 
-	gw := model.Duration(time.Duration(groupWait) * time.Second)
-	route.GroupWait = &gw
+	if !inherited {
+		if timeFields.GroupWaitSeconds > 0 {
+			gw := model.Duration(time.Duration(timeFields.GroupWaitSeconds) * time.Second)
+			route.GroupWait = &gw
+		}
 
-	ri := model.Duration(time.Duration(repeatInterval) * time.Second)
-	route.RepeatInterval = &ri
+		if timeFields.RepeatIntervalSeconds > 0 {
+			ri := model.Duration(time.Duration(timeFields.RepeatIntervalSeconds) * time.Second)
+			route.RepeatInterval = &ri
+		}
 
-	gi := model.Duration(time.Duration(groupInterval) * time.Second)
-	route.GroupInterval = &gi
+		if timeFields.GroupIntervalSeconds > 0 {
+			gi := model.Duration(time.Duration(timeFields.GroupIntervalSeconds) * time.Second)
+			route.GroupInterval = &gi
+		}
+	}
+
 	return route
 }
 
@@ -518,6 +543,24 @@ func (d *ConfigSyncer) addRecipients(notifiers []*v3.Notifier, receiver *alertco
 
 }
 
+func (d *ConfigSyncer) isAppDeploy(appNamespace string) (bool, error) {
+	appName, _ := monitorutil.ClusterAlertManagerInfo()
+	app, err := d.apps.GetNamespaced(appNamespace, appName, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+
+		return false, errors.Wrapf(err, "get app %s failed", appName)
+	}
+
+	if app.DeletionTimestamp != nil {
+		return false, nil
+	}
+
+	return true, nil
+}
+
 func includeProjectMetrics(projectAlerts []*v3.ProjectAlertRule) bool {
 	for _, v := range projectAlerts {
 		if v.Spec.MetricRule != nil {
@@ -529,7 +572,7 @@ func includeProjectMetrics(projectAlerts []*v3.ProjectAlertRule) bool {
 
 func getClusterAlertGroupBy(spec v3.ClusterAlertRuleSpec) []model.LabelName {
 	if spec.EventRule != nil {
-		return []model.LabelName{"rule_id", "resource_kind", "target_namespace", "target_name"}
+		return []model.LabelName{"rule_id", "resource_kind", "target_namespace", "target_name", "event_message"}
 	} else if spec.SystemServiceRule != nil {
 		return []model.LabelName{"rule_id", "component_name"}
 	} else if spec.NodeRule != nil {

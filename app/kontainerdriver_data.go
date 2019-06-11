@@ -25,7 +25,7 @@ func addKontainerDrivers(management *config.ManagementContext) error {
 		drivers:       management.Management.KontainerDrivers(""),
 	}
 
-	if err := creator.add("import"); err != nil {
+	if err := cleanupImportDriver(creator); err != nil {
 		return err
 	}
 
@@ -47,8 +47,8 @@ func addKontainerDrivers(management *config.ManagementContext) error {
 
 	if err := creator.addCustomDriver(
 		"aliyunkubernetescontainerservice",
-		"https://github.com/rancher/kontainer-engine-driver-aliyun/releases/download/v0.2.4/kontainer-engine-driver-aliyun-linux",
-		"61e8d1a69dae4c9bee7a1618399422300b95436ca747e520329cfc1a724c4180",
+		"https://github.com/rancher/kontainer-engine-driver-aliyun/releases/download/v0.2.5/kontainer-engine-driver-aliyun-linux",
+		"31aa0a44450c5a5eb128dd0956292dfd91aab726d1a548f6d527a9212a27db9b",
 		"",
 		false,
 		"*.aliyuncs.com",
@@ -58,8 +58,8 @@ func addKontainerDrivers(management *config.ManagementContext) error {
 
 	if err := creator.addCustomDriver(
 		"tencentkubernetesengine",
-		"https://github.com/rancher/kontainer-engine-driver-tencent/releases/download/v0.2.2/kontainer-engine-driver-tencent-linux",
-		"923bde3bcc2201e236b0e6ebcf83ca540dd12d23b5aa4804f12dd37f9beca6c6",
+		"https://github.com/rancher/kontainer-engine-driver-tencent/releases/download/v0.2.3/kontainer-engine-driver-tencent-linux",
+		"144f785473290ee2f63cf35da0c6bde12bc307878078500a47a0a8d04422ae53",
 		"",
 		false,
 		"*.tencentcloudapi.com", "*.qcloud.com",
@@ -69,12 +69,25 @@ func addKontainerDrivers(management *config.ManagementContext) error {
 
 	if err := creator.addCustomDriver(
 		"huaweicontainercloudengine",
-		"https://github.com/rancher/kontainer-engine-driver-huawei/releases/download/v0.1.1/kontainer-engine-driver-huawei-linux",
-		"8114c33cf166fa8447d3289db5330d38fbe87e09d4130d3d9eb6ba4dd8904a98",
+		"https://github.com/rancher/kontainer-engine-driver-huawei/releases/download/v0.1.2/kontainer-engine-driver-huawei-linux",
+		"0b6c1dfaa477a60a3bd9f8a60a55fcafd883866c2c5c387aec75b95d6ba81d45",
 		"",
 		false,
 		"*.myhuaweicloud.com",
 	); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func cleanupImportDriver(creator driverCreator) error {
+	var err error
+	if _, err = creator.driversLister.Get("", "import"); err == nil {
+		err = creator.drivers.Delete("import", &v1.DeleteOptions{})
+	}
+
+	if !errors.IsNotFound(err) {
 		return err
 	}
 

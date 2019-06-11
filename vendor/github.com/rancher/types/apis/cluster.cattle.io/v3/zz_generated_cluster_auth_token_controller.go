@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -28,7 +29,17 @@ var (
 
 		Kind: ClusterAuthTokenGroupVersionKind.Kind,
 	}
+
+	ClusterAuthTokenGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "clusterauthtokens",
+	}
 )
+
+func init() {
+	resource.Put(ClusterAuthTokenGroupVersionResource)
+}
 
 func NewClusterAuthToken(namespace, name string, obj ClusterAuthToken) *ClusterAuthToken {
 	obj.APIVersion, obj.Kind = ClusterAuthTokenGroupVersionKind.ToAPIVersionAndKind()
@@ -40,7 +51,7 @@ func NewClusterAuthToken(namespace, name string, obj ClusterAuthToken) *ClusterA
 type ClusterAuthTokenList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []ClusterAuthToken
+	Items           []ClusterAuthToken `json:"items"`
 }
 
 type ClusterAuthTokenHandlerFunc func(key string, obj *ClusterAuthToken) (runtime.Object, error)

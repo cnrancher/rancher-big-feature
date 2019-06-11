@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: PersistentVolumeClaimGroupVersionKind.Kind,
 	}
+
+	PersistentVolumeClaimGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "persistentvolumeclaims",
+	}
 )
+
+func init() {
+	resource.Put(PersistentVolumeClaimGroupVersionResource)
+}
 
 func NewPersistentVolumeClaim(namespace, name string, obj v1.PersistentVolumeClaim) *v1.PersistentVolumeClaim {
 	obj.APIVersion, obj.Kind = PersistentVolumeClaimGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewPersistentVolumeClaim(namespace, name string, obj v1.PersistentVolumeCla
 type PersistentVolumeClaimList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.PersistentVolumeClaim
+	Items           []v1.PersistentVolumeClaim `json:"items"`
 }
 
 type PersistentVolumeClaimHandlerFunc func(key string, obj *v1.PersistentVolumeClaim) (runtime.Object, error)

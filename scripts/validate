@@ -3,16 +3,11 @@ set -e
 
 cd $(dirname $0)/..
 
-echo Running validation
+echo Running: go fmt	
+test -z "$(go fmt ./... | tee /dev/stderr)"
 
-PACKAGES=". $(find . -name '*.go' | xargs -I{} dirname {} |  cut -f2 -d/ | sort -u | grep -Ev '(^\.$|.git|.trash-cache|vendor|bin)' | sed -e 's!^!./!' -e 's!$!/...!')"
+echo Running: go vet	
+test -z "$(go vet ./... | tee /dev/stderr)"
 
-echo Running: gometalinter
-for i in ${PACKAGES}; do
-    if [ -n "$(gometalinter $i | tee /dev/stderr)" ]; then
-        failed=true
-    fi
-done
-test -z "$failed"
-echo Running: go fmt
-test -z "$(go fmt ${PACKAGES} | tee /dev/stderr)"
+echo Running: golint	
+test -z "$(go list ./... | grep -v /vendor/ | xargs -L1 golint | grep -v 'or be unexported' | tee /dev/stderr)"

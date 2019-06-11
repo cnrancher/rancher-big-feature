@@ -15,6 +15,7 @@ import (
 	"github.com/rancher/rke/addons"
 	"github.com/rancher/rke/k8s"
 	"github.com/rancher/rke/log"
+	"github.com/rancher/rke/util"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
@@ -31,6 +32,8 @@ const (
 	KubeDNSAddonAppName            = "kube-dns"
 	KubeDNSAutoscalerAppName       = "kube-dns-autoscaler"
 	CoreDNSAutoscalerAppName       = "coredns-autoscaler"
+	KubeAPIAuthAppName             = "kube-api-auth"
+	CattleClusterAgentAppName      = "cattle-cluster-agent"
 
 	CoreDNSProvider = "coredns"
 	KubeDNSProvider = "kube-dns"
@@ -157,6 +160,13 @@ func (c *Cluster) deployAddonsInclude(ctx context.Context) error {
 			if err := validateUserAddonYAML(addonYAML); err != nil {
 				return err
 			}
+
+			// Put 3 dashes (---) at beginning of next YAML if it is not there already so we can append to manifests
+			dashes := "---\n"
+			if !strings.HasPrefix(string(addonYAML[:]), dashes) {
+				addonYAML = append([]byte(dashes), addonYAML...)
+			}
+
 			manifests = append(manifests, addonYAML...)
 		} else if isFilePath(addon) {
 			addonYAML, err := ioutil.ReadFile(addon)
@@ -291,7 +301,7 @@ func (c *Cluster) deployMetricServer(ctx context.Context) error {
 		MetricsServerImage: c.SystemImages.MetricsServer,
 		RBACConfig:         c.Authorization.Mode,
 		Options:            c.Monitoring.Options,
-		Version:            getTagMajorVersion(versionTag),
+		Version:            util.GetTagMajorVersion(versionTag),
 	}
 	metricsYaml, err := addons.GetMetricsServerManifest(MetricsServerConfig)
 	if err != nil {

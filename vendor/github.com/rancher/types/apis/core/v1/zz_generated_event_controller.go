@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +29,17 @@ var (
 		Namespaced:   false,
 		Kind:         EventGroupVersionKind.Kind,
 	}
+
+	EventGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "events",
+	}
 )
+
+func init() {
+	resource.Put(EventGroupVersionResource)
+}
 
 func NewEvent(namespace, name string, obj v1.Event) *v1.Event {
 	obj.APIVersion, obj.Kind = EventGroupVersionKind.ToAPIVersionAndKind()
@@ -40,7 +51,7 @@ func NewEvent(namespace, name string, obj v1.Event) *v1.Event {
 type EventList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Event
+	Items           []v1.Event `json:"items"`
 }
 
 type EventHandlerFunc func(key string, obj *v1.Event) (runtime.Object, error)

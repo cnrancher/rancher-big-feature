@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: ReplicationControllerGroupVersionKind.Kind,
 	}
+
+	ReplicationControllerGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "replicationcontrollers",
+	}
 )
+
+func init() {
+	resource.Put(ReplicationControllerGroupVersionResource)
+}
 
 func NewReplicationController(namespace, name string, obj v1.ReplicationController) *v1.ReplicationController {
 	obj.APIVersion, obj.Kind = ReplicationControllerGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewReplicationController(namespace, name string, obj v1.ReplicationControll
 type ReplicationControllerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.ReplicationController
+	Items           []v1.ReplicationController `json:"items"`
 }
 
 type ReplicationControllerHandlerFunc func(key string, obj *v1.ReplicationController) (runtime.Object, error)

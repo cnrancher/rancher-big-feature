@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: ResourceQuotaGroupVersionKind.Kind,
 	}
+
+	ResourceQuotaGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "resourcequotas",
+	}
 )
+
+func init() {
+	resource.Put(ResourceQuotaGroupVersionResource)
+}
 
 func NewResourceQuota(namespace, name string, obj v1.ResourceQuota) *v1.ResourceQuota {
 	obj.APIVersion, obj.Kind = ResourceQuotaGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewResourceQuota(namespace, name string, obj v1.ResourceQuota) *v1.Resource
 type ResourceQuotaList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.ResourceQuota
+	Items           []v1.ResourceQuota `json:"items"`
 }
 
 type ResourceQuotaHandlerFunc func(key string, obj *v1.ResourceQuota) (runtime.Object, error)

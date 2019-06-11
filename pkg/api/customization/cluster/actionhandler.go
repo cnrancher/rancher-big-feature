@@ -58,40 +58,40 @@ func (a ActionHandler) ClusterActionHandler(actionName string, action *types.Act
 	}
 
 	switch actionName {
-	case "generateKubeconfig":
+	case v3.ClusterActionGenerateKubeconfig:
 		return a.GenerateKubeconfigActionHandler(actionName, action, apiContext)
-	case "importYaml":
+	case v3.ClusterActionImportYaml:
 		return a.ImportYamlHandler(actionName, action, apiContext)
-	case "exportYaml":
+	case v3.ClusterActionExportYaml:
 		return a.ExportYamlHandler(actionName, action, apiContext)
-	case "viewMonitoring":
+	case v3.ClusterActionViewMonitoring:
 		return a.viewMonitoring(actionName, action, apiContext)
-	case "editMonitoring":
+	case v3.ClusterActionEditMonitoring:
 		if !canUpdateCluster() {
 			return httperror.NewAPIError(httperror.Unauthorized, "can not access")
 		}
 		return a.editMonitoring(actionName, action, apiContext)
-	case "enableMonitoring":
+	case v3.ClusterActionEnableMonitoring:
 		if !canUpdateCluster() {
 			return httperror.NewAPIError(httperror.Unauthorized, "can not access")
 		}
 		return a.enableMonitoring(actionName, action, apiContext)
-	case "disableMonitoring":
+	case v3.ClusterActionDisableMonitoring:
 		if !canUpdateCluster() {
 			return httperror.NewAPIError(httperror.Unauthorized, "can not access")
 		}
 		return a.disableMonitoring(actionName, action, apiContext)
-	case "backupEtcd":
+	case v3.ClusterActionBackupEtcd:
 		if !canUpdateCluster() {
 			return httperror.NewAPIError(httperror.Unauthorized, "can not backup etcd")
 		}
 		return a.BackupEtcdHandler(actionName, action, apiContext)
-	case "restoreFromEtcdBackup":
+	case v3.ClusterActionRestoreFromEtcdBackup:
 		if !canUpdateCluster() {
 			return httperror.NewAPIError(httperror.Unauthorized, "can not restore etcd backup")
 		}
 		return a.RestoreFromEtcdBackupHandler(actionName, action, apiContext)
-	case "rotateCertificates":
+	case v3.ClusterActionRotateCertificates:
 		if !canUpdateCluster() {
 			return httperror.NewAPIError(httperror.Unauthorized, "can not rotate certificates")
 		}
@@ -646,7 +646,7 @@ func (a ActionHandler) BackupEtcdHandler(actionName string, action *types.Action
 		return errors.Wrapf(err, "failed to get Cluster by ID %s", apiContext.ID)
 	}
 
-	newBackup := etcdbackup.NewBackupObject(cluster)
+	newBackup := etcdbackup.NewBackupObject(cluster, true)
 
 	backup, err := a.BackupClient.Create(newBackup)
 	if err != nil {
@@ -684,16 +684,34 @@ func (a ActionHandler) RestoreFromEtcdBackupHandler(actionName string, action *t
 	// checking access
 	var mgmtCluster mgmtclient.Cluster
 	if err := access.ByID(apiContext, apiContext.Version, apiContext.Type, apiContext.ID, &mgmtCluster); err != nil {
-		response["message"] = "none existent Cluster"
+		response["message"] = "nonexistent Cluster"
 		apiContext.WriteResponse(http.StatusBadRequest, response)
 		return errors.Wrapf(err, "failed to get Cluster by ID %s", apiContext.ID)
 	}
 
 	cluster, err := a.ClusterClient.Get(apiContext.ID, metav1.GetOptions{})
 	if err != nil {
-		response["message"] = "none existent Cluster"
+		response["message"] = "nonexistent Cluster"
 		apiContext.WriteResponse(http.StatusBadRequest, response)
 		return errors.Wrapf(err, "failed to get Cluster by ID %s", apiContext.ID)
+	}
+
+	clusterBackupConfig := cluster.Spec.RancherKubernetesEngineConfig.Services.Etcd.BackupConfig
+	if clusterBackupConfig != nil && clusterBackupConfig.S3BackupConfig == nil {
+		ns, name := ref.Parse(input.EtcdBackupID)
+		if ns == "" || name == "" {
+			return httperror.NewAPIError(httperror.InvalidFormat, fmt.Sprintf("invalid input id %s", input.EtcdBackupID))
+		}
+		backup, err := a.BackupClient.GetNamespaced(ns, name, metav1.GetOptions{})
+		if err != nil {
+			response["message"] = "error getting backup config"
+			apiContext.WriteResponse(http.StatusInternalServerError, response)
+			return errors.Wrapf(err, "failed to get backup config by ID %s", input.EtcdBackupID)
+		}
+		if backup.Spec.BackupConfig.S3BackupConfig != nil {
+			return httperror.NewAPIError(httperror.MethodNotAllowed,
+				fmt.Sprintf("restoring S3 backups with no cluster level S3 configuration is not supported %s", input.EtcdBackupID))
+		}
 	}
 
 	cluster.Spec.RancherKubernetesEngineConfig.Restore.SnapshotName = input.EtcdBackupID

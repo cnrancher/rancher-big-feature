@@ -6,6 +6,7 @@ import (
 	"github.com/coreos/prometheus-operator/pkg/client/monitoring/v1"
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,7 +30,17 @@ var (
 
 		Kind: AlertmanagerGroupVersionKind.Kind,
 	}
+
+	AlertmanagerGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "alertmanagers",
+	}
 )
+
+func init() {
+	resource.Put(AlertmanagerGroupVersionResource)
+}
 
 func NewAlertmanager(namespace, name string, obj v1.Alertmanager) *v1.Alertmanager {
 	obj.APIVersion, obj.Kind = AlertmanagerGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewAlertmanager(namespace, name string, obj v1.Alertmanager) *v1.Alertmanag
 type AlertmanagerList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Alertmanager
+	Items           []v1.Alertmanager `json:"items"`
 }
 
 type AlertmanagerHandlerFunc func(key string, obj *v1.Alertmanager) (runtime.Object, error)

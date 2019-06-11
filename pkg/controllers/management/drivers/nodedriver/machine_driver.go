@@ -3,14 +3,15 @@ package nodedriver
 import (
 	"context"
 	"fmt"
-	"github.com/rancher/rancher/pkg/controllers/management/drivers"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/rancher/norman/types"
-
 	errs "github.com/pkg/errors"
+	"github.com/rancher/norman/types"
+	"github.com/rancher/norman/types/convert"
+	"github.com/rancher/rancher/pkg/controllers/management/drivers"
 	"github.com/rancher/types/apis/core/v1"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
@@ -23,6 +24,18 @@ import (
 var (
 	SchemaLock = sync.Mutex{}
 	driverLock = sync.Mutex{}
+	// Aliases maps Driver field => schema field
+	// The opposite of this lives in pkg/controllers/management/node/controller.go
+	Aliases = map[string]map[string]string{
+		"aliyunecs":    map[string]string{"sshKeypath": "sshKeyContents"},
+		"amazonec2":    map[string]string{"sshKeypath": "sshKeyContents", "userdata": "userdata"},
+		"azure":        map[string]string{"customData": "customData"},
+		"digitalocean": map[string]string{"sshKeyPath": "sshKeyContents", "userdata": "userdata"},
+		"exoscale":     map[string]string{"sshKey": "sshKey", "userdata": "userdata"},
+		"openstack":    map[string]string{"privateKeyFile": "privateKeyFile"},
+		"otc":          map[string]string{"privateKeyFile": "privateKeyFile"},
+		"packet":       map[string]string{"userdata": "userdata"},
+	}
 )
 
 const (
@@ -79,7 +92,7 @@ func (m *Lifecycle) download(obj *v3.NodeDriver) (*v3.NodeDriver, error) {
 		if err != nil {
 			logrus.Errorf("error getting schema %v", err)
 		}
-		userCredFields, pwdFields := getCredFields(obj.Annotations)
+		userCredFields, pwdFields, defaults := getCredFields(obj.Annotations)
 		for name, field := range existingSchema.Spec.ResourceFields {
 			if pwdFields[name] {
 				field.Type = "password"
@@ -87,6 +100,9 @@ func (m *Lifecycle) download(obj *v3.NodeDriver) (*v3.NodeDriver, error) {
 			if field.Type == "password" || userCredFields[name] {
 				credField := field
 				credField.Required = true
+				if val, ok := defaults[name]; ok {
+					credField = updateDefault(credField, val, field.Type)
+				}
 				credFields[name] = credField
 			}
 		}
@@ -137,7 +153,7 @@ func (m *Lifecycle) download(obj *v3.NodeDriver) (*v3.NodeDriver, error) {
 	}
 	credFields := map[string]v3.Field{}
 	resourceFields := map[string]v3.Field{}
-	userCredFields, pwdFields := getCredFields(obj.Annotations)
+	userCredFields, pwdFields, defaults := getCredFields(obj.Annotations)
 	for _, flag := range flags {
 		name, field, err := FlagToField(flag)
 		if err != nil {
@@ -146,9 +162,20 @@ func (m *Lifecycle) download(obj *v3.NodeDriver) (*v3.NodeDriver, error) {
 		if pwdFields[name] {
 			field.Type = "password"
 		}
+		if aliases, ok := Aliases[driverName]; ok {
+			// convert path fields to their alias to take file contents
+			if alias, ok := aliases[name]; ok {
+				name = alias
+				field.Description = fmt.Sprintf("File contents for %v", alias)
+			}
+		}
+
 		if field.Type == "password" || userCredFields[name] {
 			credField := field
 			credField.Required = true
+			if val, ok := defaults[name]; ok {
+				credField = updateDefault(credField, val, field.Type)
+			}
 			credFields[name] = credField
 		}
 		resourceFields[name] = field
@@ -333,7 +360,7 @@ func (m *Lifecycle) createOrUpdateNodeForEmbeddedTypeWithParents(embeddedType, f
 	return nil
 }
 
-func getCredFields(annotations map[string]string) (map[string]bool, map[string]bool) {
+func getCredFields(annotations map[string]string) (map[string]bool, map[string]bool, map[string]string) {
 	getMap := func(fields string) map[string]bool {
 		data := map[string]bool{}
 		for _, field := range strings.Split(fields, ",") {
@@ -341,9 +368,40 @@ func getCredFields(annotations map[string]string) (map[string]bool, map[string]b
 		}
 		return data
 	}
-	return getMap(annotations["cred"]), getMap(annotations["password"])
+	getDefaults := func(fields string) map[string]string {
+		data := map[string]string{}
+		for _, pattern := range strings.Split(fields, ",") {
+			split := strings.SplitN(pattern, ":", 2)
+			if len(split) == 2 {
+				data[split[0]] = split[1]
+			}
+		}
+		return data
+	}
+	return getMap(annotations["cred"]), getMap(annotations["password"]), getDefaults(annotations["defaults"])
 }
 
 func credentialConfigSchemaName(driverName string) string {
 	return fmt.Sprintf("%s%s", driverName, "credentialconfig")
+}
+
+func updateDefault(credField v3.Field, val, kind string) v3.Field {
+	switch kind {
+	case "int":
+		i, err := strconv.Atoi(val)
+		if err == nil {
+			credField.Default = v3.Values{IntValue: i}
+		} else {
+			logrus.Errorf("error converting %s to int %v", val, err)
+		}
+	case "boolean":
+		credField.Default = v3.Values{BoolValue: convert.ToBool(val)}
+	case "array[string]":
+		credField.Default = v3.Values{StringSliceValue: convert.ToStringSlice(val)}
+	case "password", "string":
+		credField.Default = v3.Values{StringValue: val}
+	default:
+		logrus.Errorf("unsupported kind for default val:%s kind:%s", val, kind)
+	}
+	return credField
 }

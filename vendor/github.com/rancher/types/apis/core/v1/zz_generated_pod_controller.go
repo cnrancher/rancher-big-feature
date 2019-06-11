@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: PodGroupVersionKind.Kind,
 	}
+
+	PodGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "pods",
+	}
 )
+
+func init() {
+	resource.Put(PodGroupVersionResource)
+}
 
 func NewPod(namespace, name string, obj v1.Pod) *v1.Pod {
 	obj.APIVersion, obj.Kind = PodGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewPod(namespace, name string, obj v1.Pod) *v1.Pod {
 type PodList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Pod
+	Items           []v1.Pod `json:"items"`
 }
 
 type PodHandlerFunc func(key string, obj *v1.Pod) (runtime.Object, error)

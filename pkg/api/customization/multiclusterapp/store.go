@@ -10,14 +10,14 @@ import (
 	"github.com/rancher/norman/types"
 	"github.com/rancher/norman/types/convert"
 	"github.com/rancher/norman/types/values"
-	gaccess "github.com/rancher/rancher/pkg/api/customization/globalnamespaceaccess"
 	"github.com/rancher/rancher/pkg/auth/providers"
 	"github.com/rancher/rancher/pkg/auth/requests"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/client/management/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
-	"k8s.io/apimachinery/pkg/labels"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 func SetMemberStore(ctx context.Context, schema *types.Schema, mgmt *config.ScaledContext) {
@@ -58,6 +58,10 @@ func SetMemberStore(ctx context.Context, schema *types.Schema, mgmt *config.Scal
 		auth:       requests.NewAuthenticator(ctx, mgmt),
 		crtbLister: mgmt.Management.ClusterRoleTemplateBindings("").Controller().Lister(),
 		prtbLister: mgmt.Management.ProjectRoleTemplateBindings("").Controller().Lister(),
+		grbLister:  mgmt.Management.GlobalRoleBindings("").Controller().Lister(),
+		grLister:   mgmt.Management.GlobalRoles("").Controller().Lister(),
+		users:      mgmt.Management.Users(""),
+		rtLister:   mgmt.Management.RoleTemplates("").Controller().Lister(),
 	}
 
 	schema.Store = s
@@ -68,15 +72,21 @@ type Store struct {
 	auth       requests.Authenticator
 	crtbLister v3.ClusterRoleTemplateBindingLister
 	prtbLister v3.ProjectRoleTemplateBindingLister
+	grbLister  v3.GlobalRoleBindingLister
+	grLister   v3.GlobalRoleLister
+	users      v3.UserInterface
+	rtLister   v3.RoleTemplateLister
 }
 
 func (s *Store) Create(apiContext *types.APIContext, schema *types.Schema, data map[string]interface{}) (map[string]interface{}, error) {
+	if err := checkDuplicateTargets(data); err != nil {
+		return nil, err
+	}
 	data, err := s.setDisplayName(apiContext, schema, data)
 	if err != nil {
 		return nil, err
 	}
-	data, err = s.checkAndSetRoles(apiContext, data)
-	if err != nil {
+	if err = s.ensureRolesNotDisabled(apiContext, data); err != nil {
 		return nil, err
 	}
 	return s.Store.Create(apiContext, schema, data)
@@ -87,8 +97,7 @@ func (s *Store) Update(apiContext *types.APIContext, schema *types.Schema, data 
 	if err != nil {
 		return nil, err
 	}
-	data, err = s.checkAndSetRoles(apiContext, data)
-	if err != nil {
+	if err = s.ensureRolesNotDisabled(apiContext, data); err != nil {
 		return nil, err
 	}
 	return s.Store.Update(apiContext, schema, data, id)
@@ -122,57 +131,39 @@ func (s *Store) setDisplayName(apiContext *types.APIContext, schema *types.Schem
 	return data, nil
 }
 
-func (s *Store) checkAndSetRoles(apiContext *types.APIContext, data map[string]interface{}) (map[string]interface{}, error) {
-	// if no roles are provided, default to roles that the creator of mcapp has in all of its target projects/clusters
+func (s *Store) ensureRolesNotDisabled(apiContext *types.APIContext, data map[string]interface{}) error {
 	roles := convert.ToStringSlice(data[client.MultiClusterAppFieldRoles])
 	if len(roles) == 0 {
-		callerID := apiContext.Request.Header.Get(gaccess.ImpersonateUserHeader)
-		targetProjects := make(map[string]bool)
-		clustersOfTargetProjects := make(map[string]bool)
-		rolesToAddMap := make(map[string]bool)
-		targInterface := convert.ToMapSlice(data[client.MultiClusterAppFieldTargets])
-		for _, t := range targInterface {
-			target := convert.ToString(t[client.TargetFieldProjectID])
-			split := strings.SplitN(target, ":", 2)
-			if len(split) != 2 {
-				return nil, fmt.Errorf("invalid project name: %v", target)
-			}
-			clusterName := split[0]
-			projectName := split[1]
-			if !clustersOfTargetProjects[clusterName] {
-				// get roles from this cluster for this creator
-				crtbs, err := s.crtbLister.List(clusterName, labels.NewSelector())
-				if err != nil {
-					return nil, err
-				}
-				for _, crtb := range crtbs {
-					if crtb.UserName == callerID && !rolesToAddMap[crtb.RoleTemplateName] {
-						rolesToAddMap[crtb.RoleTemplateName] = true
-					}
-				}
-				clustersOfTargetProjects[clusterName] = true
-			}
-			if !targetProjects[projectName] {
-				// get roles from this project for this creator
-				prtbs, err := s.prtbLister.List(projectName, labels.NewSelector())
-				if err != nil {
-					return nil, err
-				}
-				for _, prtb := range prtbs {
-					if prtb.UserName == callerID && !rolesToAddMap[prtb.RoleTemplateName] {
-						rolesToAddMap[prtb.RoleTemplateName] = true
-					}
-				}
-				targetProjects[projectName] = true
-			}
-		}
-		rolesToAdd := make([]string, len(rolesToAddMap))
-		i := 0
-		for role := range rolesToAddMap {
-			rolesToAdd[i] = role
-			i++
-		}
-		values.PutValue(data, rolesToAdd, client.MultiClusterAppFieldRoles)
+		return httperror.NewAPIError(httperror.InvalidBodyContent, "No roles provided")
 	}
-	return data, nil
+	for _, role := range roles {
+		rt, err := s.rtLister.Get("", role)
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				errMsg := fmt.Sprintf("Provided role %v does not exist", role)
+				return httperror.NewAPIError(httperror.InvalidBodyContent, errMsg)
+			}
+			return err
+		}
+		if rt.Locked {
+			errMsg := fmt.Sprintf("Cannot assigned locked role %v to multiclusterapp", role)
+			return httperror.NewAPIError(httperror.InvalidBodyContent, errMsg)
+		}
+	}
+	return nil
+}
+
+func checkDuplicateTargets(data map[string]interface{}) error {
+	targets, _ := values.GetSlice(data, "targets")
+	projectIds := map[string]bool{}
+	for _, target := range targets {
+		id := convert.ToString(values.GetValueN(target, "projectId"))
+		if id != "" {
+			if _, ok := projectIds[id]; ok {
+				return httperror.NewAPIError(httperror.InvalidBodyContent, fmt.Sprintf("duplicate projects in targets %s", id))
+			}
+			projectIds[id] = true
+		}
+	}
+	return nil
 }

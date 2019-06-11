@@ -11,7 +11,6 @@ import (
 	"github.com/rancher/rke/log"
 	"github.com/rancher/rke/services"
 	"github.com/rancher/rke/templates"
-	"github.com/rancher/rke/util"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 )
 
@@ -51,6 +50,10 @@ const (
 	DefaultEtcdHeartbeatIntervalValue = "500"
 	DefaultEtcdElectionTimeoutName    = "election-timeout"
 	DefaultEtcdElectionTimeoutValue   = "5000"
+
+	DefaultFlannelBackendVxLan     = "vxlan"
+	DefaultFlannelBackendVxLanPort = "8472"
+	DefaultFlannelBackendVxLanVNI  = "1"
 )
 
 type ExternalFlags struct {
@@ -77,7 +80,7 @@ func setDefaultIfEmpty(varName *string, defaultValue string) {
 	}
 }
 
-func (c *Cluster) setClusterDefaults(ctx context.Context) error {
+func (c *Cluster) setClusterDefaults(ctx context.Context, flags ExternalFlags) error {
 	if len(c.SSHKeyPath) == 0 {
 		c.SSHKeyPath = DefaultClusterSSHKeyPath
 	}
@@ -151,8 +154,14 @@ func (c *Cluster) setClusterDefaults(ctx context.Context) error {
 		return err
 	}
 
-	if len(c.DNS.Provider) == 0 {
+	if c.DNS == nil || len(c.DNS.Provider) == 0 {
+		c.DNS = &v3.DNSConfig{}
 		c.DNS.Provider = DefaultDNSProvider
+	}
+
+	if c.RancherKubernetesEngineConfig.RotateCertificates != nil ||
+		flags.CustomCerts {
+		c.ForceDeployCerts = true
 	}
 
 	c.setClusterServicesDefaults()
@@ -202,7 +211,9 @@ func (c *Cluster) setClusterServicesDefaults() {
 		c.Services.Etcd.ExtraArgs[DefaultEtcdHeartbeatIntervalName] = DefaultEtcdHeartbeatIntervalValue
 	}
 
-	if c.Services.Etcd.BackupConfig != nil {
+	if c.Services.Etcd.BackupConfig != nil &&
+		(c.Services.Etcd.BackupConfig.Enabled == nil ||
+			(c.Services.Etcd.BackupConfig.Enabled != nil && *c.Services.Etcd.BackupConfig.Enabled)) {
 		if c.Services.Etcd.BackupConfig.IntervalHours == 0 {
 			c.Services.Etcd.BackupConfig.IntervalHours = DefaultEtcdBackupConfigIntervalHours
 		}
@@ -215,13 +226,10 @@ func (c *Cluster) setClusterServicesDefaults() {
 func (c *Cluster) setClusterImageDefaults() error {
 	var privRegURL string
 
-	// Version Check
-	err := util.ValidateVersion(c.Version)
-	if err != nil {
-		return err
+	imageDefaults, ok := v3.AllK8sVersions[c.Version]
+	if !ok {
+		return nil
 	}
-
-	imageDefaults := v3.AllK8sVersions[c.Version]
 
 	for _, privReg := range c.PrivateRegistries {
 		if privReg.IsDefault {
@@ -281,11 +289,15 @@ func (c *Cluster) setClusterNetworkDefaults() {
 		}
 	case FlannelNetworkPlugin:
 		networkPluginConfigDefaultsMap = map[string]string{
-			FlannelBackendType: "vxlan",
+			FlannelBackendType:                 DefaultFlannelBackendVxLan,
+			FlannelBackendPort:                 DefaultFlannelBackendVxLanPort,
+			FlannelBackendVxLanNetworkIdentify: DefaultFlannelBackendVxLanVNI,
 		}
 	case CanalNetworkPlugin:
 		networkPluginConfigDefaultsMap = map[string]string{
-			CanalFlannelBackendType: "vxlan",
+			CanalFlannelBackendType:                 DefaultFlannelBackendVxLan,
+			CanalFlannelBackendPort:                 DefaultFlannelBackendVxLanPort,
+			CanalFlannelBackendVxLanNetworkIdentify: DefaultFlannelBackendVxLanVNI,
 		}
 	}
 	if c.Network.CalicoNetworkProvider != nil {

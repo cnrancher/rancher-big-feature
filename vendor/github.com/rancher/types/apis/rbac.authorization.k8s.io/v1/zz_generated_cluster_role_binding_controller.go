@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +29,17 @@ var (
 		Namespaced:   false,
 		Kind:         ClusterRoleBindingGroupVersionKind.Kind,
 	}
+
+	ClusterRoleBindingGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "clusterrolebindings",
+	}
 )
+
+func init() {
+	resource.Put(ClusterRoleBindingGroupVersionResource)
+}
 
 func NewClusterRoleBinding(namespace, name string, obj v1.ClusterRoleBinding) *v1.ClusterRoleBinding {
 	obj.APIVersion, obj.Kind = ClusterRoleBindingGroupVersionKind.ToAPIVersionAndKind()
@@ -40,7 +51,7 @@ func NewClusterRoleBinding(namespace, name string, obj v1.ClusterRoleBinding) *v
 type ClusterRoleBindingList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.ClusterRoleBinding
+	Items           []v1.ClusterRoleBinding `json:"items"`
 }
 
 type ClusterRoleBindingHandlerFunc func(key string, obj *v1.ClusterRoleBinding) (runtime.Object, error)

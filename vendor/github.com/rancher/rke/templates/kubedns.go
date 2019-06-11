@@ -15,6 +15,15 @@ spec:
       labels:
         k8s-app: kube-dns-autoscaler
     spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: beta.kubernetes.io/os
+                  operator: NotIn
+                  values:
+                    - windows
       serviceAccountName: kube-dns-autoscaler
       containers:
       - name: autoscaler
@@ -51,7 +60,7 @@ metadata:
 rules:
   - apiGroups: [""]
     resources: ["nodes"]
-    verbs: ["list"]
+    verbs: ["list", "watch"]
   - apiGroups: [""]
     resources: ["replicationcontrollers/scale"]
     verbs: ["get", "update"]
@@ -128,6 +137,14 @@ spec:
                     operator: In
                     values: ["kube-dns"]
               topologyKey: kubernetes.io/hostname
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                - key: beta.kubernetes.io/os
+                  operator: NotIn
+                  values:
+                    - windows
       tolerations:
       - key: "CriticalAddonsOnly"
         operator: "Exists"

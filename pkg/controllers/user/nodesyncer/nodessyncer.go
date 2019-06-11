@@ -3,6 +3,7 @@ package nodesyncer
 import (
 	"fmt"
 	"reflect"
+	"sort"
 
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -339,8 +340,8 @@ func (m *NodesSyncer) createNode(node *corev1.Node, pods map[string][]*corev1.Po
 
 	if machine.Annotations == nil {
 		machine.Annotations = make(map[string]string)
-		machine.Annotations[annotationName] = "true"
 	}
+	machine.Annotations[annotationName] = "true"
 
 	_, err = m.machines.Create(machine)
 	if err != nil {
@@ -390,6 +391,9 @@ func resetConditions(machine *v3.Node) *v3.Node {
 		toUpdateCond.LastTransitionTime = metav1.Time{}
 		toUpdateConds = append(toUpdateConds, *toUpdateCond)
 	}
+	sort.Slice(toUpdateConds, func(i, j int) bool {
+		return toUpdateConds[i].Type < toUpdateConds[j].Type
+	})
 	updated.Status.InternalNodeStatus.Conditions = toUpdateConds
 	return updated
 }

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -25,11 +26,13 @@ const (
 )
 
 const (
-	deadlineTimeout = time.Duration(2 * time.Second)
+	deadlineTimeout     = time.Duration(2 * time.Second)
+	readDeadlineTimeout = time.Duration(5 * time.Second)
 )
 
 var (
-	testMessage = "Rancher logging target setting validated"
+	testMessage        = "Rancher logging target setting validated"
+	errReadDataTimeout = errors.New("read data timeout")
 )
 
 type LoggingTargetTestWrap interface {
@@ -67,13 +70,13 @@ func testReachableHTTP(dial dialer.Dialer, req *http.Request, tlsConfig *tls.Con
 
 	res, err := client.Do(req)
 	if err != nil {
-		return errors.Wrapf(err, "request to logging target %s failed", req.URL)
+		return errors.Wrapf(err, "couldn't send the request to target %s", req.URL)
 	}
 
 	if res.StatusCode < http.StatusOK || res.StatusCode >= http.StatusMultipleChoices {
 		body, err := ioutil.ReadAll(res.Body)
 		if err != nil {
-			return errors.Wrapf(err, "read response body from %s failed, response code is %v", req.URL.String(), res.StatusCode)
+			return errors.Wrapf(err, "couldn't read response body from %s, response code is %v", req.URL.String(), res.StatusCode)
 		}
 		return fmt.Errorf("response code from %s is %v, not include in the 2xx success HTTP status codes, response body: %s", req.URL.String(), res.StatusCode, string(body))
 	}
@@ -84,13 +87,13 @@ func testReachableHTTP(dial dialer.Dialer, req *http.Request, tlsConfig *tls.Con
 func writeToUDPConn(data []byte, smartHost string) error {
 	conn, err := net.Dial("udp", smartHost)
 	if err != nil {
-		return errors.Wrapf(err, "dail to udp endpoint %s failed", smartHost)
+		return errors.Wrapf(err, "couldn't dail udp endpoint %s", smartHost)
 	}
 	defer conn.Close()
 
 	_, err = conn.Write(data)
 	if err != nil {
-		return errors.Wrapf(err, "write udp endpoint %s failed", smartHost)
+		return errors.Wrapf(err, "couldn't write to udp endpoint %s", smartHost)
 	}
 	return nil
 }
@@ -98,7 +101,7 @@ func writeToUDPConn(data []byte, smartHost string) error {
 func newTCPConn(dialer dialer.Dialer, smartHost string, tlsConfig *tls.Config, handshake bool) (net.Conn, error) {
 	conn, err := dialer("tcp", smartHost)
 	if err != nil {
-		return nil, errors.Wrap(err, "create raw conn failed")
+		return nil, errors.Wrapf(err, "couldn't create raw connection %s", smartHost)
 	}
 	conn.SetDeadline(time.Now().Add(deadlineTimeout))
 
@@ -119,7 +122,7 @@ func newTCPConn(dialer dialer.Dialer, smartHost string, tlsConfig *tls.Config, h
 func newUDPConn(smartHost string) (net.Conn, error) {
 	conn, err := net.Dial("udp", smartHost)
 	if err != nil {
-		return nil, errors.Wrapf(err, "dail to udp endpoint %s failed", smartHost)
+		return nil, errors.Wrapf(err, "couldn't dial udp endpoint %s", smartHost)
 	}
 	conn.SetDeadline(time.Now().Add(deadlineTimeout))
 	return conn, nil
@@ -136,7 +139,7 @@ func decodePEM(clientKey, passphrase string) ([]byte, error) {
 	if x509.IsEncryptedPEMBlock(pemBlock) {
 		clientKeyBytes, err = x509.DecryptPEMBlock(pemBlock, []byte(passphrase))
 		if err != nil {
-			return nil, errors.Wrap(err, "private key is encrypted, but could not decrypt it")
+			return nil, errors.Wrap(err, "couldn't decrypt private key")
 		}
 		clientKeyBytes = pem.EncodeToMemory(&pem.Block{Type: pemBlock.Type, Bytes: clientKeyBytes})
 	}
@@ -165,7 +168,7 @@ func buildTLSConfig(rootCA, clientCert, clientKey, clientKeyPass, sslVersion, se
 	if clientCert != "" {
 		cert, err := tls.X509KeyPair([]byte(clientCert), decodeClientKeyBytes)
 		if err != nil {
-			return nil, errors.Wrap(err, "load client cert and key failed")
+			return nil, errors.Wrap(err, "couldn't load client certificate and private key")
 		}
 
 		config.Certificates = []tls.Certificate{cert}
@@ -203,4 +206,27 @@ func randHex(n int) string {
 		b[i] = letterHex[rand.Intn(len(letterHex))]
 	}
 	return string(b)
+}
+
+// add this func is because we can't set read deadline for remotedialer now, the conn is base on cluster dialer
+func readDataWithTimeout(conn net.Conn) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), readDeadlineTimeout)
+	defer cancel()
+	buf := make([]byte, 1024)
+	errc := make(chan error, 1)
+
+	go func() {
+		_, err := conn.Read(buf)
+		errc <- errors.Wrap(err, "couldn't read data from remote server")
+	}()
+
+	select {
+	case <-ctx.Done():
+		return nil, errReadDataTimeout
+	case err := <-errc:
+		if err == nil {
+			return buf, nil
+		}
+		return nil, err
+	}
 }

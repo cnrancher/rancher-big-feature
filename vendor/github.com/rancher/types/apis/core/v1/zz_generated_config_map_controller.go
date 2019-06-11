@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: ConfigMapGroupVersionKind.Kind,
 	}
+
+	ConfigMapGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "configmaps",
+	}
 )
+
+func init() {
+	resource.Put(ConfigMapGroupVersionResource)
+}
 
 func NewConfigMap(namespace, name string, obj v1.ConfigMap) *v1.ConfigMap {
 	obj.APIVersion, obj.Kind = ConfigMapGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewConfigMap(namespace, name string, obj v1.ConfigMap) *v1.ConfigMap {
 type ConfigMapList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.ConfigMap
+	Items           []v1.ConfigMap `json:"items"`
 }
 
 type ConfigMapHandlerFunc func(key string, obj *v1.ConfigMap) (runtime.Object, error)

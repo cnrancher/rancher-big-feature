@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: RoleBindingGroupVersionKind.Kind,
 	}
+
+	RoleBindingGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "rolebindings",
+	}
 )
+
+func init() {
+	resource.Put(RoleBindingGroupVersionResource)
+}
 
 func NewRoleBinding(namespace, name string, obj v1.RoleBinding) *v1.RoleBinding {
 	obj.APIVersion, obj.Kind = RoleBindingGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewRoleBinding(namespace, name string, obj v1.RoleBinding) *v1.RoleBinding 
 type RoleBindingList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.RoleBinding
+	Items           []v1.RoleBinding `json:"items"`
 }
 
 type RoleBindingHandlerFunc func(key string, obj *v1.RoleBinding) (runtime.Object, error)

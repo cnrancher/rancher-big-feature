@@ -23,6 +23,7 @@ import (
 	"github.com/rancher/types/client/management/v3"
 	"github.com/rancher/types/compose"
 	"github.com/rancher/types/user"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 func Formatter(apiContext *types.APIContext, resource *types.RawResource) {
@@ -273,6 +274,9 @@ func (h *Handler) setPodSecurityPolicyTemplate(actionName string, action *types.
 
 	project, err := h.updateProjectPSPTID(request, podSecurityPolicyTemplateName)
 	if err != nil {
+		if apierrors.IsConflict(err) {
+			return httperror.WrapAPIError(err, httperror.Conflict, "error updating PSPT ID")
+		}
 		return fmt.Errorf("error updating PSPT ID: %v", err)
 	}
 
@@ -375,8 +379,7 @@ func (h *Handler) updateBinding(binding map[string]interface{}, request *types.A
 	binding["id"] = id
 
 	if _, ok := binding["id"].(string); ok && id != "" {
-		var err error
-		binding, err = schema.Store.Update(request, schema, binding, id)
+		_, err := schema.Store.Update(request, schema, binding, id)
 		if err != nil {
 			return fmt.Errorf("error updating binding: %v", err)
 		}

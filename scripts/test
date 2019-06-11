@@ -15,15 +15,21 @@ cleanup()
         rke remove --dind --force --config $dindYML
         rm -f $dindYML
     done
+    echo '***RANCHER LOGS***'
+    cat $CWD/rancherlogs.txt
+    echo '***END RANCHER LOGS***'
     return $EXIT
 }
 
-#PACKAGES=". $(find -name '*.go' | xargs -I{} dirname {} |  cut -f2 -d/ | sort -u | grep -Ev '(^\.$|.git|.trash-cache|vendor|bin)' | sed -e 's!^!./!' -e 's!$!/...!')"
-#
 #[ "${ARCH}" == "amd64" ] && RACE=-race
-#go test ${RACE} -cover -tags=test ${PACKAGES}
+go test -cover -tags=test .././...
 
-$(dirname $0)/run &
+if [ ${ARCH} == arm64 ]; then
+    export ETCD_UNSUPPORTED_ARCH=arm64
+fi
+
+echo Starting rancher server
+$(dirname $0)/run &> $CWD/rancherlogs.txt &
 PID=$!
 trap cleanup exit
 
@@ -33,6 +39,6 @@ done
 
 echo Running tests
 
-cd $(dirname $0)/../tests
+cd $(dirname $0)/../tests/integration
 tox -- -m "not nonparallel" -n $(nproc)
 tox -- -m nonparallel

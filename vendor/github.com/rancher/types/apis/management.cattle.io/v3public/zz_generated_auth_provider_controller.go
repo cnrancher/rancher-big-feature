@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -27,7 +28,17 @@ var (
 		Namespaced:   false,
 		Kind:         AuthProviderGroupVersionKind.Kind,
 	}
+
+	AuthProviderGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "authproviders",
+	}
 )
+
+func init() {
+	resource.Put(AuthProviderGroupVersionResource)
+}
 
 func NewAuthProvider(namespace, name string, obj AuthProvider) *AuthProvider {
 	obj.APIVersion, obj.Kind = AuthProviderGroupVersionKind.ToAPIVersionAndKind()
@@ -39,7 +50,7 @@ func NewAuthProvider(namespace, name string, obj AuthProvider) *AuthProvider {
 type AuthProviderList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AuthProvider
+	Items           []AuthProvider `json:"items"`
 }
 
 type AuthProviderHandlerFunc func(key string, obj *AuthProvider) (runtime.Object, error)

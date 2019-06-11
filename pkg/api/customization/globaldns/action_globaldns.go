@@ -2,25 +2,36 @@ package globaldns
 
 import (
 	"fmt"
+	"github.com/rancher/norman/httperror"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rancher/norman/api/access"
 	"github.com/rancher/norman/parse"
 	"github.com/rancher/norman/types"
 	"github.com/rancher/norman/types/convert"
 	gaccess "github.com/rancher/rancher/pkg/api/customization/globalnamespaceaccess"
-	"github.com/rancher/types/apis/management.cattle.io/v3"
 	managementschema "github.com/rancher/types/apis/management.cattle.io/v3/schema"
 	"github.com/rancher/types/client/management/v3"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 const (
 	addProjectsAction    = "addProjects"
 	removeProjectsAction = "removeProjects"
 )
+
+var backoff = wait.Backoff{
+	Duration: 100 * time.Millisecond,
+	Factor:   2,
+	Jitter:   0.5,
+	Steps:    7,
+}
 
 func (w *Wrapper) Formatter(apiContext *types.APIContext, resource *types.RawResource) {
 	resource.AddAction(apiContext, addProjectsAction)
@@ -35,12 +46,10 @@ func (w *Wrapper) ActionHandler(actionName string, action *types.Action, request
 	if len(split) != 2 {
 		return fmt.Errorf("incorrect global DNS ID")
 	}
-	existingProjects := make(map[string]bool)
-	gDNS, err := w.GlobalDNSes.Controller().Lister().Get(split[0], split[1])
+	gDNS, err := w.GlobalDNSes.GetNamespaced(split[0], split[1], v1.GetOptions{})
 	if err != nil {
 		return err
 	}
-	// ensure that caller is not a readonly member of globaldns, else abort
 	callerID := request.Request.Header.Get(gaccess.ImpersonateUserHeader)
 	metaAccessor, err := meta.Accessor(gDNS)
 	if err != nil {
@@ -51,7 +60,9 @@ func (w *Wrapper) ActionHandler(actionName string, action *types.Action, request
 		return fmt.Errorf("GlobalDNS %v has no creatorId annotation", metaAccessor.GetName())
 	}
 	ma := gaccess.MemberAccess{
-		Users: w.Users,
+		Users:     w.Users,
+		GrbLister: w.GrbLister,
+		GrLister:  w.GrLister,
 	}
 	accessType, err := ma.GetAccessTypeOfCaller(callerID, creatorID, gDNS.Name, gDNS.Spec.Members)
 	if err != nil {
@@ -66,62 +77,109 @@ func (w *Wrapper) ActionHandler(actionName string, action *types.Action, request
 		return err
 	}
 	inputProjects := convert.ToStringSlice(actionInput[client.UpdateGlobalDNSTargetsInputFieldProjectIDs])
-	for _, p := range gDNS.Spec.ProjectNames {
-		existingProjects[p] = true
-	}
-
 	switch actionName {
 	case addProjectsAction:
-		return w.addProjects(gDNS, request, inputProjects, existingProjects)
+		return w.addProjects(request, inputProjects)
 	case removeProjectsAction:
-		return w.removeProjects(gDNS, request, existingProjects, inputProjects)
+		return w.removeProjects(request, inputProjects)
 	default:
 		return fmt.Errorf("bad action for global dns %v", actionName)
 	}
 }
 
-func (w *Wrapper) addProjects(gDNS *v3.GlobalDNS, request *types.APIContext, inputProjects []string, existingProjects map[string]bool) error {
-	if gDNS.Spec.MultiClusterAppName != "" {
-		return fmt.Errorf("cannot add projects to globaldns as targets if multiclusterappId is set")
-	}
+func (w *Wrapper) addProjects(request *types.APIContext, inputProjects []string) error {
 	ma := gaccess.MemberAccess{
-		Users: w.Users,
+		Users:     w.Users,
+		GrbLister: w.GrbLister,
+		GrLister:  w.GrLister,
 	}
 	if err := ma.CheckCallerAccessToTargets(request, inputProjects, client.ProjectType, &client.Project{}); err != nil {
 		return err
 	}
-	gDNSToUpdate := gDNS.DeepCopy()
 
-	for _, p := range inputProjects {
-		if !existingProjects[p] {
-			gDNSToUpdate.Spec.ProjectNames = append(gDNSToUpdate.Spec.ProjectNames, p)
+	split := strings.SplitN(request.ID, ":", 2)
+	if len(split) != 2 {
+		return fmt.Errorf("incorrect global DNS ID")
+	}
+
+	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		existingProjects := make(map[string]bool)
+		gDNS, err := w.GlobalDNSes.GetNamespaced(split[0], split[1], v1.GetOptions{})
+		if err != nil {
+			return false, err
 		}
-	}
-	return w.updateGDNS(gDNSToUpdate, request, "addedProjects")
-}
-
-func (w *Wrapper) removeProjects(gDNS *v3.GlobalDNS, request *types.APIContext, existingProjects map[string]bool, inputProjects []string) error {
-	gDNSToUpdate := gDNS.DeepCopy()
-	toRemoveProjects := make(map[string]bool)
-	var finalProjects []string
-	for _, p := range inputProjects {
-		toRemoveProjects[p] = true
-	}
-	for _, p := range gDNS.Spec.ProjectNames {
-		if !toRemoveProjects[p] {
-			finalProjects = append(finalProjects, p)
+		if gDNS.Spec.MultiClusterAppName != "" {
+			return false, httperror.NewAPIError(httperror.InvalidOption,
+				fmt.Sprintf("cannot add projects to globaldns as targets if multiclusterappID is set %s", gDNS.Spec.MultiClusterAppName))
 		}
-	}
-	gDNSToUpdate.Spec.ProjectNames = finalProjects
-	return w.updateGDNS(gDNSToUpdate, request, "removedProjects")
-}
+		for _, p := range gDNS.Spec.ProjectNames {
+			existingProjects[p] = true
+		}
+		for _, p := range inputProjects {
+			if existingProjects[p] {
+				return false, httperror.NewAPIError(httperror.InvalidBodyContent, fmt.Sprintf("duplicate projects in targets %s", p))
+			}
+			existingProjects[p] = true
+		}
+		for _, name := range inputProjects {
+			gDNS.Spec.ProjectNames = append(gDNS.Spec.ProjectNames, name)
+		}
+		_, err = w.GlobalDNSes.Update(gDNS)
+		if err != nil {
+			if apierrors.IsConflict(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	})
 
-func (w Wrapper) updateGDNS(gDNSToUpdate *v3.GlobalDNS, request *types.APIContext, message string) error {
-	if _, err := w.GlobalDNSes.Update(gDNSToUpdate); err != nil {
+	if err != nil {
 		return err
 	}
 	op := map[string]interface{}{
-		"message": message,
+		"message": "addedProjects",
+	}
+	request.WriteResponse(http.StatusOK, op)
+	return nil
+}
+
+func (w *Wrapper) removeProjects(request *types.APIContext, inputProjects []string) error {
+	split := strings.SplitN(request.ID, ":", 2)
+	if len(split) != 2 {
+		return fmt.Errorf("incorrect global DNS ID")
+	}
+
+	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		gDNS, err := w.GlobalDNSes.GetNamespaced(split[0], split[1], v1.GetOptions{})
+		if err != nil {
+			return false, err
+		}
+		toRemoveProjects := make(map[string]bool)
+		var finalProjects []string
+		for _, p := range inputProjects {
+			toRemoveProjects[p] = true
+		}
+		for _, p := range gDNS.Spec.ProjectNames {
+			if !toRemoveProjects[p] {
+				finalProjects = append(finalProjects, p)
+			}
+		}
+		gDNS.Spec.ProjectNames = finalProjects
+		_, err = w.GlobalDNSes.Update(gDNS)
+		if err != nil {
+			if apierrors.IsConflict(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	})
+	if err != nil {
+		return err
+	}
+	op := map[string]interface{}{
+		"message": "removedProjects",
 	}
 	request.WriteResponse(http.StatusOK, op)
 	return nil

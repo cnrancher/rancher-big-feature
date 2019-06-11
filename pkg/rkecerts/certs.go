@@ -2,6 +2,7 @@ package rkecerts
 
 import (
 	"bytes"
+	"crypto/md5"
 	"crypto/rsa"
 	"crypto/x509"
 	"io/ioutil"
@@ -18,6 +19,7 @@ import (
 	"github.com/rancher/rancher/pkg/librke"
 	"github.com/rancher/rke/pki"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
+	"github.com/sirupsen/logrus"
 	k8sclientv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/client-go/util/cert"
 )
@@ -30,7 +32,7 @@ type Bundle struct {
 	certs map[string]pki.CertificatePKI
 }
 
-func newBundle(certs map[string]pki.CertificatePKI) *Bundle {
+func NewBundle(certs map[string]pki.CertificatePKI) *Bundle {
 	return &Bundle{
 		certs: certs,
 	}
@@ -38,7 +40,7 @@ func newBundle(certs map[string]pki.CertificatePKI) *Bundle {
 
 func Unmarshal(input string) (*Bundle, error) {
 	certs, err := rkecerts.LoadString(input)
-	return newBundle(certs), err
+	return NewBundle(certs), err
 }
 
 func (b *Bundle) Certs() map[string]pki.CertificatePKI {
@@ -56,7 +58,7 @@ func LoadLocal() (*Bundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	return newBundle(certMap), nil
+	return NewBundle(certMap), nil
 }
 
 func Generate(config *v3.RancherKubernetesEngineConfig) (*Bundle, error) {
@@ -83,7 +85,7 @@ func (b *Bundle) ForNode(config *v3.RancherKubernetesEngineConfig, nodeAddress s
 	}
 }
 
-func (b *Bundle) ForWindowsNode(config *v3.RancherKubernetesEngineConfig, nodeAddress string, windowsReleaseID string) *Bundle {
+func (b *Bundle) ForWindowsNode(config *v3.RancherKubernetesEngineConfig, nodeAddress string) *Bundle {
 	nb := b.ForNode(config, nodeAddress)
 
 	certs := make(map[string]pki.CertificatePKI, len(nb.certs))
@@ -95,14 +97,6 @@ func (b *Bundle) ForWindowsNode(config *v3.RancherKubernetesEngineConfig, nodeAd
 				clusterAmount := len(config.Clusters)
 				for i := 0; i < clusterAmount; i++ {
 					cluster := &config.Clusters[i].Cluster
-
-					if windowsReleaseID == "1709" {
-						cluster.Server = fmt.Sprintf("https://%s:6443", nodeAddress)
-
-						cluster.InsecureSkipTLSVerify = true
-						cluster.CertificateAuthority = ""
-						cluster.CertificateAuthorityData = nil
-					}
 
 					if len(cluster.CertificateAuthority) != 0 {
 						cluster.CertificateAuthority = "c:" + cluster.CertificateAuthority
@@ -174,6 +168,27 @@ func (b *Bundle) Explode() error {
 	}
 
 	return f.err()
+}
+
+func (b *Bundle) Changed() bool {
+	var newCertPEM string
+	for _, item := range b.certs {
+		oldCertPEM, err := ioutil.ReadFile(item.Path)
+		if err != nil {
+			logrus.Warnf("Unable to read certificate %s: %v", item.Name, err)
+			return false
+		}
+		if item.Certificate != nil {
+			newCertPEM = string(cert.EncodeCertPEM(item.Certificate))
+		}
+		oldCertChecksum := fmt.Sprintf("%x", md5.Sum([]byte(oldCertPEM)))
+		newCertChecksum := fmt.Sprintf("%x", md5.Sum([]byte(newCertPEM)))
+
+		if oldCertChecksum != newCertChecksum {
+			return true
+		}
+	}
+	return false
 }
 
 type fileWriter struct {

@@ -14,28 +14,32 @@ import (
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/types/convert"
 	"github.com/rancher/norman/types/slice"
+	"github.com/rancher/norman/types/values"
 	"github.com/rancher/rancher/pkg/ref"
 	"github.com/rancher/rancher/pkg/rkedialerfactory"
 	"github.com/rancher/rancher/pkg/settings"
 	"github.com/rancher/rke/services"
-	"github.com/rancher/types/apis/management.cattle.io/v3"
+	v3 "github.com/rancher/types/apis/management.cattle.io/v3"
 	"github.com/rancher/types/config"
 	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/util/flowcontrol"
 )
 
 const (
-	RKEDriverKey = "rancherKubernetesEngineConfig"
+	RKEDriverKey          = "rancherKubernetesEngineConfig"
+	KontainerEngineUpdate = "provisioner.cattle.io/ke-driver-update"
 )
 
 type Provisioner struct {
 	ClusterController     v3.ClusterController
 	Clusters              v3.ClusterInterface
 	NodeLister            v3.NodeLister
-	Driver                service.EngineService
+	engineService         *service.EngineService
 	backoff               *flowcontrol.Backoff
 	KontainerDriverLister v3.KontainerDriverLister
 	DynamicSchemasLister  v3.DynamicSchemaLister
@@ -44,7 +48,7 @@ type Provisioner struct {
 
 func Register(ctx context.Context, management *config.ManagementContext) {
 	p := &Provisioner{
-		Driver:                service.NewEngineService(NewPersistentStore(management.Core.Namespaces(""), management.Core)),
+		engineService:         service.NewEngineService(NewPersistentStore(management.Core.Namespaces(""), management.Core)),
 		Clusters:              management.Management.Clusters(""),
 		ClusterController:     management.Management.Clusters("").Controller(),
 		NodeLister:            management.Management.Nodes("").Controller().Lister(),
@@ -81,7 +85,8 @@ func (p *Provisioner) Remove(cluster *v3.Cluster) (runtime.Object, error) {
 	}
 
 	for i := 0; i < 4; i++ {
-		err := p.driverRemove(cluster)
+		// cluster will be forcefully removed on last attempt
+		err := p.driverRemove(cluster, i == 3)
 		if err == nil {
 			break
 		}
@@ -98,11 +103,140 @@ func (p *Provisioner) Remove(cluster *v3.Cluster) (runtime.Object, error) {
 
 func (p *Provisioner) Updated(cluster *v3.Cluster) (runtime.Object, error) {
 	obj, err := v3.ClusterConditionUpdated.Do(cluster, func() (runtime.Object, error) {
-		setVersion(cluster)
-		return p.update(cluster, false)
+		anno, _ := cluster.Annotations[KontainerEngineUpdate]
+		if anno == "updated" {
+			// Cluster has already been updated proceed as usual
+			setVersion(cluster)
+			return p.update(cluster, false)
+
+		} else if strings.HasPrefix(anno, "updating/") {
+			// Check if it's been updating for more than 20 seconds, this lets
+			// the controller take over attempting to update the cluster
+			pieces := strings.Split(anno, "/")
+			t, err := time.Parse(time.RFC3339, pieces[1])
+			if err != nil || int(time.Since(t)/time.Second) > 20 {
+				cluster.Annotations[KontainerEngineUpdate] = "updated"
+				return p.Clusters.Update(cluster)
+			}
+			// Go routine is already running to update the cluster so wait
+			return nil, nil
+		}
+		// Set the annotation and kickoff the update
+		c, err := p.setKontainerEngineUpdate(cluster, "updating")
+		if err != nil {
+			return cluster, err
+		}
+		go p.waitForSchema(c)
+		return nil, nil
 	})
 
 	return obj.(*v3.Cluster), err
+}
+
+// waitForSchema waits for the driver and schema to be populated for the cluster
+func (p *Provisioner) waitForSchema(cluster *v3.Cluster) {
+	var driver string
+	if cluster.Spec.GenericEngineConfig == nil {
+		if cluster.Spec.AmazonElasticContainerServiceConfig != nil {
+			driver = "amazonelasticcontainerservice"
+		}
+
+		if cluster.Spec.AzureKubernetesServiceConfig != nil {
+			driver = "azurekubernetesservice"
+		}
+
+		if cluster.Spec.GoogleKubernetesEngineConfig != nil {
+			driver = "googlekubernetesengine"
+		}
+	} else {
+		if d, ok := (*cluster.Spec.GenericEngineConfig)["driverName"]; ok {
+			driver = d.(string)
+		}
+	}
+
+	if driver != "" {
+		var schemaName string
+		backoff := wait.Backoff{
+			Duration: 2 * time.Second,
+			Factor:   1,
+			Jitter:   0,
+			Steps:    7,
+		}
+		err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+			driver, err := p.KontainerDriverLister.Get("", driver)
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
+			}
+
+			if driver.Spec.BuiltIn {
+				schemaName = driver.Status.DisplayName + "Config"
+			} else {
+				schemaName = driver.Status.DisplayName + "EngineConfig"
+			}
+
+			_, err = p.DynamicSchemasLister.Get("", strings.ToLower(schemaName))
+			if err != nil {
+				if !apierrors.IsNotFound(err) {
+					return false, err
+				}
+				return false, nil
+			}
+
+			return true, nil
+		})
+		if err != nil {
+			logrus.Warnf("[cluster-provisioner-controller] Failed to find driver %v and schema %v for cluster %v on upgrade: %v",
+				driver, schemaName, cluster.Name, err)
+		}
+	}
+
+	_, err := p.setKontainerEngineUpdate(cluster, "updated")
+	if err != nil {
+		logrus.Warnf("[cluster-provisioner-controller] Failed to set annotation on cluster %v on upgrade: %v", cluster.Name, err)
+	}
+	p.ClusterController.Enqueue(cluster.Namespace, cluster.Name)
+}
+
+func (p *Provisioner) setKontainerEngineUpdate(cluster *v3.Cluster, anno string) (*v3.Cluster, error) {
+	backoff := wait.Backoff{
+		Duration: 500 * time.Millisecond,
+		Factor:   1,
+		Jitter:   0,
+		Steps:    6,
+	}
+
+	err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+		newCluster, err := p.Clusters.Get(cluster.Name, metav1.GetOptions{})
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				return false, err
+			}
+			return false, nil
+		}
+
+		if anno == "updating" {
+			// Add a timestamp for comparison since this anno was added
+			anno = anno + "/" + time.Now().Format(time.RFC3339)
+		}
+
+		newCluster.Annotations[KontainerEngineUpdate] = anno
+		newCluster, err = p.Clusters.Update(newCluster)
+		if err != nil {
+			if apierrors.IsConflict(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		cluster = newCluster
+		return true, nil
+	})
+	if err != nil {
+		return cluster, fmt.Errorf("Failed to update cluster [%s]: %v", cluster.Name, err)
+	}
+	return cluster, nil
 }
 
 func setVersion(cluster *v3.Cluster) {
@@ -115,6 +249,24 @@ func setVersion(cluster *v3.Cluster) {
 				} else {
 					cluster.Spec.RancherKubernetesEngineConfig.Version = settings.KubernetesVersion.Get()
 				}
+			}
+		}
+	} else if cluster.Spec.AmazonElasticContainerServiceConfig != nil {
+		if cluster.Status.Version != nil {
+			setConfigVersion := func(config *v3.MapStringInterface) {
+				v, found := values.GetValue(*config, "kubernetesVersion")
+				if !found || convert.ToString(v) == "" && cluster.Status.Version != nil && cluster.Status.Version.Major != "" && len(cluster.Status.Version.Minor) > 1 {
+					values.PutValue(*config, fmt.Sprintf("%s.%s", cluster.Status.Version.Major, cluster.Status.Version.Minor[:2]), "kubernetesVersion")
+				}
+			}
+
+			// during upgrade it is possible genericEngineConfig has not been set
+			if newConfig := cluster.Spec.AmazonElasticContainerServiceConfig; newConfig != nil {
+				setConfigVersion(newConfig)
+			}
+
+			if oldConfig := cluster.Status.AppliedSpec.AmazonElasticContainerServiceConfig; oldConfig != nil {
+				setConfigVersion(oldConfig)
 			}
 		}
 	}
@@ -261,6 +413,8 @@ func (p *Provisioner) reconcileCluster(cluster *v3.Cluster, create bool) (*v3.Cl
 		}
 	}
 
+	p.setGenericConfigs(cluster)
+
 	spec, err := p.getSpec(cluster)
 	if err != nil || spec == nil {
 		return cluster, err
@@ -287,6 +441,14 @@ func (p *Provisioner) reconcileCluster(cluster *v3.Cluster, create bool) (*v3.Cl
 		apiEndpoint, serviceAccountToken, caCert, err = p.driverUpdate(cluster, *spec)
 	} else {
 		logrus.Infof("Updating cluster [%s]", cluster.Name)
+
+		// Attempt to manually trigger updating, otherwise it will not be triggered until after exiting reconcile
+		v3.ClusterConditionUpdated.Unknown(cluster)
+		cluster, err = p.Clusters.Update(cluster)
+		if err != nil {
+			return cluster, fmt.Errorf("Failed to update cluster [%s]: %v", cluster.Name, err)
+		}
+
 		apiEndpoint, serviceAccountToken, caCert, err = p.driverUpdate(cluster, *spec)
 	}
 	// at this point we know the cluster has been modified in driverCreate/Update so reload
@@ -345,6 +507,35 @@ func (p *Provisioner) reconcileCluster(cluster *v3.Cluster, create bool) (*v3.Cl
 
 	logrus.Infof("Provisioned cluster [%s]", cluster.Name)
 	return cluster, nil
+}
+
+func (p *Provisioner) setGenericConfigs(cluster *v3.Cluster) {
+	if cluster.Spec.GenericEngineConfig == nil || cluster.Status.AppliedSpec.GenericEngineConfig == nil {
+		setGenericConfig := func(spec *v3.ClusterSpec) {
+			if spec.GenericEngineConfig == nil {
+				if spec.AmazonElasticContainerServiceConfig != nil {
+					spec.GenericEngineConfig = spec.AmazonElasticContainerServiceConfig
+					(*spec.GenericEngineConfig)["driverName"] = "amazonelasticcontainerservice"
+					spec.AmazonElasticContainerServiceConfig = nil
+				}
+
+				if spec.AzureKubernetesServiceConfig != nil {
+					spec.GenericEngineConfig = spec.AzureKubernetesServiceConfig
+					(*spec.GenericEngineConfig)["driverName"] = "azurekubernetesservice"
+					spec.AzureKubernetesServiceConfig = nil
+				}
+
+				if spec.GoogleKubernetesEngineConfig != nil {
+					spec.GenericEngineConfig = spec.GoogleKubernetesEngineConfig
+					(*spec.GenericEngineConfig)["driverName"] = "googlekubernetesengine"
+					spec.GoogleKubernetesEngineConfig = nil
+				}
+			}
+		}
+
+		setGenericConfig(&cluster.Spec)
+		setGenericConfig(&cluster.Status.AppliedSpec)
+	}
 }
 
 func resetRkeConfigFlags(cluster *v3.Cluster) {
@@ -459,23 +650,6 @@ func (p *Provisioner) getDriver(cluster *v3.Cluster) (string, error) {
 	var driver *v3.KontainerDriver
 	var err error
 
-	if cluster.Spec.GenericEngineConfig == nil {
-		if cluster.Spec.AmazonElasticContainerServiceConfig != nil {
-			cluster.Spec.GenericEngineConfig = cluster.Spec.AmazonElasticContainerServiceConfig
-			(*cluster.Spec.GenericEngineConfig)["driverName"] = "amazonelasticcontainerservice"
-		}
-
-		if cluster.Spec.AzureKubernetesServiceConfig != nil {
-			cluster.Spec.GenericEngineConfig = cluster.Spec.AzureKubernetesServiceConfig
-			(*cluster.Spec.GenericEngineConfig)["driverName"] = "azurekubernetesservice"
-		}
-
-		if cluster.Spec.GoogleKubernetesEngineConfig != nil {
-			cluster.Spec.GenericEngineConfig = cluster.Spec.GoogleKubernetesEngineConfig
-			(*cluster.Spec.GenericEngineConfig)["driverName"] = "googlekubernetesengine"
-		}
-	}
-
 	if cluster.Spec.GenericEngineConfig != nil {
 		kontainerDriverName := (*cluster.Spec.GenericEngineConfig)["driverName"].(string)
 		driver, err = p.KontainerDriverLister.Get("", kontainerDriverName)
@@ -516,7 +690,10 @@ func (p *Provisioner) validateDriver(cluster *v3.Cluster) (string, error) {
 	}
 
 	if newDriver == "" {
-		return "", &controller.ForgetError{Err: fmt.Errorf("waiting for nodes")}
+		return "", &controller.ForgetError{
+			Err:    fmt.Errorf("waiting for nodes"),
+			Reason: "Pending",
+		}
 	}
 
 	if oldDriver != newDriver {
@@ -568,7 +745,12 @@ func (p *Provisioner) getSpec(cluster *v3.Cluster) (*v3.ClusterSpec, error) {
 		return nil, err
 	}
 
-	_, oldConfig, err := p.getConfig(false, cluster.Status.AppliedSpec, driverName, cluster.Name)
+	censoredOldSpec, err := p.censorGenericEngineConfig(cluster.Status.AppliedSpec)
+	if err != nil {
+		return nil, err
+	}
+
+	_, oldConfig, err := p.getConfig(false, censoredOldSpec, driverName, cluster.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -581,6 +763,14 @@ func (p *Provisioner) getSpec(cluster *v3.Cluster) (*v3.ClusterSpec, error) {
 	newSpec, newConfig, err := p.getConfig(true, censoredSpec, driverName, cluster.Name)
 	if err != nil {
 		return nil, err
+	}
+
+	// Version is the only parameter that can be updated for EKS, if they is equal we do not need to update
+	// TODO: Replace with logic that is more adaptable
+	if cluster.Spec.GenericEngineConfig != nil && (*cluster.Spec.GenericEngineConfig)["driverName"] == "amazonelasticcontainerservice" &&
+		cluster.Status.AppliedSpec.GenericEngineConfig != nil && (*cluster.Spec.GenericEngineConfig)["kubernetesVersion"] ==
+		(*cluster.Status.AppliedSpec.GenericEngineConfig)["kubernetesVersion"] {
+		return nil, nil
 	}
 
 	if reflect.DeepEqual(oldConfig, newConfig) {
@@ -686,5 +876,21 @@ func (p *Provisioner) restoreClusterBackup(cluster *v3.Cluster, spec v3.ClusterS
 	if backup.Spec.ClusterID != cluster.Name {
 		return "", "", "", fmt.Errorf("snapshot [%s] is not a backup of cluster [%s]", backup.Name, cluster.Name)
 	}
-	return p.driverRestore(cluster, spec)
+
+	api, token, cert, err = p.driverRestore(cluster, spec)
+	if err != nil {
+		return "", "", "", err
+	}
+	// checking if we have s3 config and that it's not inconsistent. This happens
+	// when restore is performed with invalid credentials and then the cluster is updated to fix it.
+	if spec.RancherKubernetesEngineConfig.Services.Etcd.BackupConfig.S3BackupConfig != nil {
+		s3Config := cluster.Spec.RancherKubernetesEngineConfig.Services.Etcd.BackupConfig.S3BackupConfig
+		appliedS3Conf := cluster.Status.AppliedSpec.RancherKubernetesEngineConfig.Services.Etcd.BackupConfig.S3BackupConfig
+
+		if !reflect.DeepEqual(s3Config, appliedS3Conf) {
+			logrus.Infof("updated spec during restore detected for cluster [%s], update is required", cluster.Name)
+			api, token, cert, err = p.driverUpdate(cluster, spec)
+		}
+	}
+	return api, token, cert, err
 }

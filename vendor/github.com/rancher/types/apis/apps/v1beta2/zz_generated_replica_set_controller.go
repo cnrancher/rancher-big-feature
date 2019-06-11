@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/apps/v1beta2"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: ReplicaSetGroupVersionKind.Kind,
 	}
+
+	ReplicaSetGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "replicasets",
+	}
 )
+
+func init() {
+	resource.Put(ReplicaSetGroupVersionResource)
+}
 
 func NewReplicaSet(namespace, name string, obj v1beta2.ReplicaSet) *v1beta2.ReplicaSet {
 	obj.APIVersion, obj.Kind = ReplicaSetGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewReplicaSet(namespace, name string, obj v1beta2.ReplicaSet) *v1beta2.Repl
 type ReplicaSetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1beta2.ReplicaSet
+	Items           []v1beta2.ReplicaSet `json:"items"`
 }
 
 type ReplicaSetHandlerFunc func(key string, obj *v1beta2.ReplicaSet) (runtime.Object, error)

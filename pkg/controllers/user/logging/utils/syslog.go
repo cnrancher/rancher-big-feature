@@ -3,7 +3,6 @@ package utils
 import (
 	"crypto/tls"
 	"fmt"
-	"log/syslog"
 	"net"
 	"os"
 	"time"
@@ -23,7 +22,7 @@ func (w *syslogTestWrap) TestReachable(dial dialer.Dialer, includeSendTestLog bo
 	if w.Protocol == "udp" {
 		conn, err := net.Dial("udp", w.Endpoint)
 		if err != nil {
-			return errors.Wrapf(err, "dail to udp endpoint %s failed", w.Endpoint)
+			return errors.Wrapf(err, "couldn't dail udp endpoint %s", w.Endpoint)
 		}
 		defer conn.Close()
 
@@ -37,7 +36,7 @@ func (w *syslogTestWrap) TestReachable(dial dialer.Dialer, includeSendTestLog bo
 	if w.EnableTLS {
 		hostName, _, err := net.SplitHostPort(w.Endpoint)
 		if err != nil {
-			return errors.Wrapf(err, "parse endpoint %s failed", w.Endpoint)
+			return errors.Wrapf(err, "couldn't parse url %s", w.Endpoint)
 		}
 
 		tlsConfig, err = buildTLSConfig(w.Certificate, w.ClientCert, w.ClientKey, "", "", hostName, w.SSLVerify)
@@ -57,15 +56,13 @@ func (w *syslogTestWrap) TestReachable(dial dialer.Dialer, includeSendTestLog bo
 	}
 
 	if _, err = conn.Write(syslogTestData); err != nil {
-		return errors.Wrapf(err, "write data to server %s failed", w.Endpoint)
+		return errors.Wrapf(err, "couldn't write data to syslog %s", w.Endpoint)
 	}
 
-	if !w.EnableTLS {
-		// for not tls try read to check whether the server close connect already
-		resBuf := make([]byte, 1024)
-		if _, err := conn.Read(resBuf); err != nil {
-			return errors.Wrapf(err, "read data from syslog server %s failed", w.Endpoint)
-		}
+	// try read to check whether the server close connect already
+	// because can't set read deadline for remote dialer, so if the error is timeout will treat as remote server not close the connection
+	if _, err := readDataWithTimeout(conn); err != nil && err != errReadDataTimeout {
+		return errors.Wrapf(err, "couldn't read data from syslog %s", w.Endpoint)
 	}
 
 	return nil
@@ -95,21 +92,16 @@ func newRFC5424Message(severityStr, app, token, msg string) []byte {
 	))
 }
 
-func getSeverity(severityStr string) syslog.Priority {
-	severityMap := map[string]syslog.Priority{
-		"emerg":   syslog.LOG_EMERG,
-		"alert":   syslog.LOG_ALERT,
-		"crit":    syslog.LOG_CRIT,
-		"err":     syslog.LOG_ERR,
-		"warning": syslog.LOG_WARNING,
-		"notice":  syslog.LOG_NOTICE,
-		"info":    syslog.LOG_INFO,
-		"debug":   syslog.LOG_DEBUG,
+func GetWrapSeverity(severity string) string {
+	// for adapt api and fluentd config
+	severityMap := map[string]string{
+		"warning": "warn",
 	}
 
-	if severity, ok := severityMap[severityStr]; ok {
+	wrapSeverity := severityMap[severity]
+	if wrapSeverity == "" {
 		return severity
 	}
 
-	return syslog.LOG_INFO
+	return wrapSeverity
 }

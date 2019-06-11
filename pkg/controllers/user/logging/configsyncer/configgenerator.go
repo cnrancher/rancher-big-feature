@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/rancher/norman/controller"
+	loggingconfig "github.com/rancher/rancher/pkg/controllers/user/logging/config"
 	"github.com/rancher/rancher/pkg/controllers/user/logging/generator"
 	"github.com/rancher/rancher/pkg/project"
 	"github.com/rancher/types/apis/core/v1"
@@ -15,10 +16,9 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 )
 
-func NewConfigGenerator(clusterName string, clusterLoggingLister mgmtv3.ClusterLoggingLister, projectLoggingLister mgmtv3.ProjectLoggingLister, namespaceLister v1.NamespaceLister) *ConfigGenerator {
+func NewConfigGenerator(clusterName string, projectLoggingLister mgmtv3.ProjectLoggingLister, namespaceLister v1.NamespaceLister) *ConfigGenerator {
 	return &ConfigGenerator{
 		clusterName:          clusterName,
-		clusterLoggingLister: clusterLoggingLister,
 		projectLoggingLister: projectLoggingLister,
 		namespaceLister:      namespaceLister,
 	}
@@ -26,7 +26,6 @@ func NewConfigGenerator(clusterName string, clusterLoggingLister mgmtv3.ClusterL
 
 type ConfigGenerator struct {
 	clusterName          string
-	clusterLoggingLister mgmtv3.ClusterLoggingLister
 	projectLoggingLister mgmtv3.ProjectLoggingLister
 	namespaceLister      v1.NamespaceLister
 }
@@ -96,7 +95,8 @@ func (s *ConfigGenerator) addExcludeNamespaces(systemProjectID string) (string, 
 	var systemNamespaces []string
 	for _, v := range namespaces {
 		if v.Annotations[project.ProjectIDAnn] == systemProjectID {
-			systemNamespaces = append(systemNamespaces, v.Name)
+			namespacePattern := loggingconfig.GetNamespacePattern(v.Name)
+			systemNamespaces = append(systemNamespaces, namespacePattern)
 		}
 	}
 

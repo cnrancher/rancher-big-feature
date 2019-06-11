@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/rancher/norman/api/access"
+	"github.com/rancher/norman/httperror"
 	"github.com/rancher/norman/parse"
 	"github.com/rancher/norman/types"
 	"github.com/rancher/norman/types/convert"
@@ -19,6 +20,7 @@ import (
 	mgmtclientv3 "github.com/rancher/types/client/management/v3"
 	"github.com/rancher/types/config"
 	"github.com/rancher/types/config/dialer"
+	"github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 )
@@ -61,17 +63,23 @@ func (h *ClusterGraphHandler) QuerySeriesAction(actionName string, action *types
 		return fmt.Errorf("get usercontext failed, %v", err)
 	}
 
-	prometheusName, prometheusNamespace := monitorutil.ClusterMonitoringInfo()
-	token, err := getAuthToken(userContext, prometheusName, prometheusNamespace)
-	if err != nil {
-		return err
-	}
-
 	reqContext, cancel := context.WithTimeout(context.Background(), prometheusReqTimeout)
 	defer cancel()
 
-	svcName, svcNamespace, svcPort := monitorutil.ClusterPrometheusEndpoint()
-	prometheusQuery, err := NewPrometheusQuery(reqContext, clusterName, token, svcNamespace, svcName, svcPort, h.dialerFactory)
+	var svcName, svcNamespace, svcPort, token string
+	if inputParser.Input.Filters["resourceType"] == "istiocluster" {
+		inputParser.Input.MetricParams["namespace"] = ".*"
+		svcName, svcNamespace, svcPort = monitorutil.IstioPrometheusEndpoint()
+	} else {
+		prometheusName, prometheusNamespace := monitorutil.ClusterMonitoringInfo()
+		token, err = getAuthToken(userContext, prometheusName, prometheusNamespace)
+		if err != nil {
+			return err
+		}
+		svcName, svcNamespace, svcPort = monitorutil.ClusterPrometheusEndpoint()
+	}
+
+	prometheusQuery, err := NewPrometheusQuery(reqContext, clusterName, token, svcNamespace, svcName, svcPort, h.dialerFactory, userContext)
 	if err != nil {
 		return err
 	}
@@ -103,7 +111,8 @@ func (h *ClusterGraphHandler) QuerySeriesAction(actionName string, action *types
 
 	seriesSlice, err := prometheusQuery.Do(queries)
 	if err != nil {
-		return fmt.Errorf("query series failed, %v", err)
+		logrus.WithError(err).Warn("query series failed")
+		return httperror.NewAPIError(httperror.ServerError, "Failed to obtain metrics. The metrics service may not be available.")
 	}
 
 	if seriesSlice == nil {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +29,17 @@ var (
 		Namespaced:   false,
 		Kind:         NamespaceGroupVersionKind.Kind,
 	}
+
+	NamespaceGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "namespaces",
+	}
 )
+
+func init() {
+	resource.Put(NamespaceGroupVersionResource)
+}
 
 func NewNamespace(namespace, name string, obj v1.Namespace) *v1.Namespace {
 	obj.APIVersion, obj.Kind = NamespaceGroupVersionKind.ToAPIVersionAndKind()
@@ -40,7 +51,7 @@ func NewNamespace(namespace, name string, obj v1.Namespace) *v1.Namespace {
 type NamespaceList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Namespace
+	Items           []v1.Namespace `json:"items"`
 }
 
 type NamespaceHandlerFunc func(key string, obj *v1.Namespace) (runtime.Object, error)

@@ -275,7 +275,7 @@ spec:
     component: cluster
     graph: disk-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ClusterMonitorGraph
@@ -300,7 +300,7 @@ spec:
     component: cluster
     graph: network-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ClusterMonitorGraph
@@ -457,7 +457,7 @@ spec:
     component: etcd
     graph: rpc-client-traffic
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ClusterMonitorGraph
@@ -533,7 +533,7 @@ spec:
     component: etcd
     graph: etcd-peer-traffic
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ClusterMonitorGraph
@@ -793,33 +793,6 @@ spec:
   yAxis:
     unit: seconds
 ---
-apiVersion: management.cattle.io/v3
-kind: ClusterMonitorGraph
-metadata:
-  labels:
-    app: metric-expression
-    source: rancher-monitoring
-    level: cluster
-    component: ingresscontroller
-    cluster-graph: kube-component
-  name: ingresscontroller-upstream-response-seconds
-spec:
-  resourceType: ingresscontroller
-  displayResourceType: kube-component
-  priority: 332
-  title: ingresscontroller-upstream-response-seconds
-  metricsSelector:
-    details: "false"
-    component: ingresscontroller
-    metric: upstream-response-seconds
-  detailsMetricsSelector:
-    details: "true"
-    component: ingresscontroller
-    metric: upstream-response-seconds
-  yAxis:
-    unit: seconds
-  graphType: singlestat
----
 # Source: metric-expression-cluster/templates/graphnode.yaml
 apiVersion: management.cattle.io/v3
 kind: ClusterMonitorGraph
@@ -941,7 +914,7 @@ spec:
     component: node
     graph: disk-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ClusterMonitorGraph
@@ -966,7 +939,7 @@ spec:
     component: node
     graph: network-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ClusterMonitorGraph
@@ -1200,8 +1173,7 @@ metadata:
     metric: disk-io-reads-bytes-sum-rate
     source: rancher-monitoring
 spec:
-  expression: sum(rate(node_disk_read_bytes_total[5m])) by
-    () * 8 / 1024
+  expression: sum(rate(node_disk_read_bytes_total[5m]))
   legendFormat: Read
   description: cluster disk io reads bytes sum rate
 ---
@@ -1219,7 +1191,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_disk_read_bytes_total[5m])) by
-    (instance) * 8 / 1024
+    (instance)
   legendFormat: Read([[instance]])
   description: cluster disk io reads bytes sum rate
 ---
@@ -1237,7 +1209,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-     * 8 / 1024
   legendFormat: Transmit
   description: cluster network transmit bytes sum rate
 ---
@@ -1255,7 +1226,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    by (instance) * 8 / 1024
+    by (instance)
   legendFormat: Transmit([[instance]])
   description: cluster network transmit bytes sum rate
 ---
@@ -1272,7 +1243,7 @@ metadata:
     metric: cpu-load-5
     source: rancher-monitoring
 spec:
-  expression: sum(node_load5)  / count(node_cpu_seconds_total{mode="system"})
+  expression: sum(node_load5) / count(node_cpu_seconds_total{mode="system"})
   legendFormat: Load5
   description: cluster cpu load 5
 ---
@@ -1307,8 +1278,7 @@ metadata:
     metric: cpu-load-1
     source: rancher-monitoring
 spec:
-  expression: sum(node_load1)  / count(node_cpu_seconds_total{mode="system"})
-    
+  expression: sum(node_load1) / count(node_cpu_seconds_total{mode="system"})
   legendFormat: Load1
   description: cluster cpu load 1
 ---
@@ -1344,7 +1314,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_disk_written_bytes_total[5m]))
-     * 8 / 1024
   legendFormat: Write
   description: cluster disk io writes bytes sum rate
 ---
@@ -1362,7 +1331,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_disk_written_bytes_total[5m]))
-    by (instance) * 8 / 1024
+    by (instance)
   legendFormat: Write([[instance]])
   description: cluster disk io writes bytes sum rate
 ---
@@ -1381,7 +1350,6 @@ spec:
   expression: (sum(node_filesystem_size_bytes{device!="rootfs"})
      - sum(node_filesystem_free_bytes{device!="rootfs"})
     ) / sum(node_filesystem_size_bytes{device!="rootfs"})
-    
   legendFormat: Disk usage
   description: cluster fs usage percent
 ---
@@ -1418,7 +1386,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_errs_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    
   legendFormat: Receive errors
   description: cluster network receive errors sum
 ---
@@ -1453,8 +1420,7 @@ metadata:
     metric: cpu-load-15
     source: rancher-monitoring
 spec:
-  expression: sum(node_load15)  / count(node_cpu_seconds_total{mode="system"})
-    
+  expression: sum(node_load15) / count(node_cpu_seconds_total{mode="system"})
   legendFormat: Load15
   description: cluster cpu load 15
 ---
@@ -1490,7 +1456,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-     * 8 / 1024
   legendFormat: Receive
   description: cluster network receive bytes sum rate
 ---
@@ -1508,7 +1473,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    by (instance) * 8 / 1024
+    by (instance)
   legendFormat: Receive([[instance]])
   description: cluster network receive bytes sum rate
 ---
@@ -1526,7 +1491,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_packets_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    
   legendFormat: Receive packets
   description: cluster network receive packets sum
 ---
@@ -1562,7 +1526,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_errs_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    
   legendFormat: Transmit errors
   description: cluster network transmit errors sum
 ---
@@ -1598,7 +1561,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_drop_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    
   legendFormat: Receive dropped
   description: cluster network receive packets dropped sum
 ---
@@ -1634,7 +1596,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_drop_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    
   legendFormat: Transmit dropped
   description: cluster network transmit packets dropped sum
 ---
@@ -1670,7 +1631,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_packets_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*"}[5m]))
-    
   legendFormat: Transmit packets
   description: cluster network transmit packets sum
 ---
@@ -1764,53 +1724,19 @@ spec:
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
 metadata:
-  name: container-cpu-cfs-throttled-seconds-sum-rate
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    graph: cpu-usage-details
-    level: project
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU cfs throttled
-  description: container cpu cfs throttled seconds sum rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
   name: container-cpu-cfs-throttled-seconds-sum-rate-details
   labels:
     app: metric-expression
     component: container
     details: "true"
-    graph: cpu-usage-details
-    level: project
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU cfs throttled([[container_name]])
-  description: container cpu cfs throttled seconds sum rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: cpu-usage-seconds-sum-rate
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
     graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_usage_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU usage
-  description: container cpu usage seconds sum rate
+  expression: sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+    container_name=~"$containerName"}[5m]))
+  legendFormat: CPU cfs throttled
+  description: container cpu cfs throttled seconds sum rate
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -1825,26 +1751,9 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_cpu_usage_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU usage([[container_name]])
+    container_name=~"$containerName"}[5m]))
+  legendFormat: CPU usage
   description: container cpu usage seconds sum rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-cpu-system-seconds-sum-rate
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    graph: cpu-usage-details
-    level: project
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(container_cpu_system_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU system seconds
-  description: container cpu system seconds sum rate
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -1854,31 +1763,14 @@ metadata:
     app: metric-expression
     component: container
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_cpu_system_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU system seconds([[container_name]])
+    container_name=~"$containerName"}[5m]))
+  legendFormat: CPU system seconds
   description: container cpu system seconds sum rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-cpu-user-seconds-sum-rate
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    graph: cpu-usage-details
-    level: project
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(container_cpu_user_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU user seconds
-  description: container cpu user seconds sum rate
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -1888,69 +1780,14 @@ metadata:
     app: metric-expression
     component: container
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_cpu_user_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)
-  legendFormat: CPU user seconds([[container_name]])
+    container_name=~"$containerName"}[5m]))
+  legendFormat: CPU user seconds
   description: container cpu user seconds sum rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-memory-usage-percent
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    level: project
-    metric: memory-usage-percent
-    source: rancher-monitoring
-spec:
-  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name=~"$containerName"}) by (container_name) / sum(label_join(kube_pod_container_resource_limits_memory_bytes{namespace=~"$namespace",
-    pod=~"$podName", container=~"$containerName"},"container_name", "", "container"))
-    by (container_name)
-  legendFormat: Memory
-  description: container memory usage percent
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-memory-usage-percent-details
-  labels:
-    app: metric-expression
-    component: container
-    details: "true"
-    level: project
-    metric: memory-usage-percent
-    source: rancher-monitoring
-spec:
-  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name=~"$containerName"}) by (container_name) / sum(label_join(kube_pod_container_resource_limits_memory_bytes{namespace=~"$namespace",
-    pod=~"$podName", container=~"$containerName"},"container_name", "", "container"))
-    by (container_name)
-  legendFormat: Memory([[container_name]])
-  description: container memory usage percent
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-memory-usage-bytes-sum
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    level: project
-    metric: memory-usage-bytes-sum
-    source: rancher-monitoring
-spec:
-  expression: sum(container_memory_working_set_bytes{name!~"POD", namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}) by (container_name)
-  legendFormat: Memory usage
-  description: container memory usage bytes sum
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -1965,61 +1802,9 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(container_memory_working_set_bytes{name!~"POD", namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}) by (container_name)
-  legendFormat: Memory usage([[container_name]])
+    container_name=~"$containerName"})
+  legendFormat: Memory usage
   description: container memory usage bytes sum
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-fs-bytes-sum
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    level: project
-    metric: fs-bytes-sum
-    source: rancher-monitoring
-spec:
-  expression: sum(container_fs_usage_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name=~"$containerName"}) by (container_name)
-  legendFormat: Filesystem usage
-  description: container fs bytes sum
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-fs-bytes-sum-details
-  labels:
-    app: metric-expression
-    component: container
-    details: "true"
-    level: project
-    metric: fs-bytes-sum
-    source: rancher-monitoring
-spec:
-  expression: sum(container_fs_usage_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name=~"$containerName"}) by (container_name)
-  legendFormat: Filesystem usage([[container_name]])
-  description: container fs bytes sum
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-disk-io-writes-bytes-sum-rate
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    graph: disk-io
-    level: project
-    metric: disk-io-writes-bytes-sum-rate
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(container_fs_writes_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name) * 8 / 1024
-  legendFormat: Write
-  description: container disk io writes bytes sum rate
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -2035,27 +1820,9 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_writes_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name) * 8 / 1024
-  legendFormat: Write([[container_name]])
+    container_name=~"$containerName"}[5m]))
+  legendFormat: Write
   description: container disk io writes bytes sum rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: container-disk-io-reads-bytes-sum-rate
-  labels:
-    app: metric-expression
-    component: container
-    details: "false"
-    graph: disk-io
-    level: project
-    metric: disk-io-reads-bytes-sum-rate
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(container_fs_reads_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)  * 8 / 1024
-  legendFormat: Read
-  description: container disk io reads bytes sum rate
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -2071,8 +1838,8 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_reads_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name=~"$containerName"}[5m])) by (container_name)  * 8 / 1024
-  legendFormat: Read([[container_name]])
+    container_name=~"$containerName"}[5m]))
+  legendFormat: Read
   description: container disk io reads bytes sum rate
 ---
 
@@ -2366,6 +2133,38 @@ spec:
   legendFormat: Statefulset depth([[instance]])
   description: controllermanager statefulset adds
 ---
+kind: MonitorMetric
+apiVersion: management.cattle.io/v3
+metadata:
+  name: controllermanager-replicationmanager-depth
+  labels:
+    app: metric-expression
+    component: controllermanager
+    details: "false"
+    level: cluster
+    metric: replicationmanager-depth
+    source: rancher-monitoring
+spec:
+  expression: sum(replicationmanager_depth) 
+  legendFormat: ReplicationManager depth
+  description: controllermanager replicationmanager adds
+---
+kind: MonitorMetric
+apiVersion: management.cattle.io/v3
+metadata:
+  name: controllermanager-replicationmanager-depth-details
+  labels:
+    app: metric-expression
+    component: controllermanager
+    details: "true"
+    level: cluster
+    metric: replicationmanager-depth
+    source: rancher-monitoring
+spec:
+  expression: sum(replicationmanager_depth) by (instance)
+  legendFormat: ReplicationManager depth([[instance]])
+  description: controllermanager replicationmanager adds
+---
 
 ---
 # Source: metric-expression-cluster/templates/expressionetcd.yaml
@@ -2381,7 +2180,7 @@ metadata:
     metric: server-failed-proposal
     source: rancher-monitoring
 spec:
-  expression: count(up{job="exporter-kube-etcd-cluster-monitoring"}) by (instance)
+  expression: sum(etcd_server_proposals_failed_total)
   legendFormat: Failed proposal
   description: etcd Server failed proposal
 ---
@@ -2397,7 +2196,7 @@ metadata:
     metric: server-failed-proposal
     source: rancher-monitoring
 spec:
-  expression: count(up{job="exporter-kube-etcd-cluster-monitoring"}) by (instance)
+  expression: sum(etcd_server_proposals_failed_total)
   legendFormat: Failed proposal
   description: etcd Server failed proposal
 ---
@@ -2446,8 +2245,7 @@ metadata:
     metric: grpc-client-receive-bytes-sum-rate
     source: rancher-monitoring
 spec:
-  expression: sum(rate(etcd_network_client_grpc_received_bytes_total[5m]))  *
-    8 / 1024
+  expression: sum(rate(etcd_network_client_grpc_received_bytes_total[5m]))
   legendFormat: Client traffic in
   description: etcd grpc client receive bytes sum rate
 ---
@@ -2465,7 +2263,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(etcd_network_client_grpc_received_bytes_total[5m])) by (instance)
-    * 8 / 1024
   legendFormat: Client traffic in([[instance]])
   description: etcd grpc client receive bytes sum rate
 ---
@@ -2716,8 +2513,7 @@ metadata:
     metric: disk-wal-fsync-duration-seconds-sum-quantile
     source: rancher-monitoring
 spec:
-  expression: sum(histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])))
-    
+  expression: sum(histogram_quantile(0.99, sum(rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])) by (instance, le)))
   legendFormat: WAL fsync
   description: etcd disk wal fsync duration seconds sum quantile
 ---
@@ -2734,8 +2530,7 @@ metadata:
     metric: disk-wal-fsync-duration-seconds-sum-quantile
     source: rancher-monitoring
 spec:
-  expression: sum(histogram_quantile(0.99, rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])))
-    by (instance)
+  expression: histogram_quantile(0.99, sum(rate(etcd_disk_wal_fsync_duration_seconds_bucket[5m])) by (instance, le))
   legendFormat: WAL fsync([[instance]])
   description: etcd disk wal fsync duration seconds sum quantile
 ---
@@ -2752,7 +2547,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(grpc_server_handled_total{grpc_code!="OK"}[5m]))  / sum(rate(grpc_server_handled_total[5m]))
-    
   legendFormat: Rpc failed rate
   description: etcd grpc request error percent
 ---
@@ -2786,8 +2580,7 @@ metadata:
     metric: disk-commit-duration-seconds-sum-quantile
     source: rancher-monitoring
 spec:
-  expression: sum(histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[5m])))
-    
+  expression: sum(histogram_quantile(0.99, sum(rate(etcd_disk_backend_commit_duration_seconds_bucket[5m])) by (instance, le)))
   legendFormat: DB fsync
   description: etcd disk commit duration seconds sum quantile
 ---
@@ -2804,8 +2597,7 @@ metadata:
     metric: disk-commit-duration-seconds-sum-quantile
     source: rancher-monitoring
 spec:
-  expression: sum(histogram_quantile(0.99, rate(etcd_disk_backend_commit_duration_seconds_bucket[5m])))
-    by (instance)
+  expression: histogram_quantile(0.99, sum(rate(etcd_disk_backend_commit_duration_seconds_bucket[5m])) by (instance, le))
   legendFormat: DB fsync([[instance]])
   description: etcd disk commit duration seconds sum quantile
 ---
@@ -2821,8 +2613,7 @@ metadata:
     metric: grpc-request-slow-quantile
     source: rancher-monitoring
 spec:
-  expression: sum(histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_type="unary"}[5m]))))
-    
+  expression: sum(histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=~"etcdserverpb.*",grpc_type="unary"}[5m])) by (instance,le)))
   legendFormat: Request slow"
   description: etcd grpc request slow quantile
 ---
@@ -2838,8 +2629,7 @@ metadata:
     metric: grpc-request-slow-quantile
     source: rancher-monitoring
 spec:
-  expression: sum(histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_type="unary"}[5m]))))
-    by (instance)
+  expression: histogram_quantile(0.99, sum(rate(grpc_server_handling_seconds_bucket{grpc_service=~"etcdserverpb.*",grpc_type="unary"}[5m])) by (instance,le))
   legendFormat: Request slow([[instance]])
   description: etcd grpc request slow quantile
 ---
@@ -2858,7 +2648,6 @@ metadata:
 spec:
   expression: sum(grpc_server_started_total{grpc_service="etcdserverpb.Watch",grpc_type="bidi_stream"})
      - sum(grpc_server_handled_total{grpc_service="etcdserverpb.Watch",grpc_type="bidi_stream"})
-    
   legendFormat: Watch streams
   description: Etcd watch stream
 ---
@@ -2896,7 +2685,6 @@ metadata:
 spec:
   expression: sum(grpc_server_started_total{grpc_service="etcdserverpb.Lease",grpc_type="bidi_stream"})
      - sum(grpc_server_handled_total{grpc_service="etcdserverpb.Lease",grpc_type="bidi_stream"})
-    
   legendFormat: Lease watch stream
   description: Etcd lease stream
 ---
@@ -2932,7 +2720,7 @@ metadata:
     metric: peer-traffic-in
     source: rancher-monitoring
 spec:
-  expression: sum(rate(etcd_network_peer_received_bytes_total[5m]))  * 8 / 1024
+  expression: sum(rate(etcd_network_peer_received_bytes_total[5m]))
   legendFormat: Traffic in"
   description: Etcd peer traffic in
 ---
@@ -2950,7 +2738,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(etcd_network_peer_received_bytes_total[5m])) by (instance)
-    * 8 / 1024
   legendFormat: Traffic in([[instance]])
   description: Etcd peer traffic in
 ---
@@ -2987,38 +2774,6 @@ spec:
   expression: sum(rate(etcd_network_peer_sent_bytes_total[5m])) by (instance)
   legendFormat: Traffic out([[instance]])
   description: Etcd peer traffic out
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: etcd-proposal-failure-rate
-  labels:
-    app: metric-expression
-    component: etcd
-    details: "false"
-    graph: proposal
-    level: cluster
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(etcd_server_proposals_failed_total[5m])) 
-  legendFormat: Proposal failure
-  description: Proposal Failure Rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: etcd-proposal-failure-rate-details
-  labels:
-    app: metric-expression
-    component: etcd
-    details: "true"
-    graph: proposal
-    level: cluster
-    source: rancher-monitoring
-spec:
-  expression: sum(rate(etcd_server_proposals_failed_total[5m])) by (instance)
-  legendFormat: Proposal failure([[instance]])
-  description: Proposal Failure Rate
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -3065,7 +2820,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(grpc_server_handled_total{grpc_type="unary",grpc_code!="OK"}[5m]))
-    
   legendFormat: Rpc failed rate
   description: rpc-rate
 ---
@@ -3081,8 +2835,7 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(rate(grpc_server_handled_total{grpc_type="unary",grpc_code!="OK"}[5m]))
-    by (instance)
+  expression: sum(rate(grpc_server_handled_total{grpc_type="unary",grpc_code!="OK"}[5m])) by (instance)
   legendFormat: Rpc failed rate([[instance]])
   description: rpc-rate
 ---
@@ -3296,8 +3049,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="reading"})
-  legendFormat: Reading connections
+  expression: sum(nginx_ingress_controller_nginx_process_connections{state="reading"})
+  legendFormat: Reading
   description: ingresscontroller nginx connection reading
 ---
 kind: MonitorMetric
@@ -3312,8 +3065,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="reading"}) by (instance)
-  legendFormat: Reading connections
+  expression: sum(nginx_ingress_controller_nginx_process_connections{state="reading"}) by (instance)
+  legendFormat: Reading([[instance]])
   description: ingresscontroller nginx connection reading
 ---
 kind: MonitorMetric
@@ -3328,8 +3081,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="waiting"})
-  legendFormat: Nginx waiting connection
+  expression: sum(nginx_ingress_controller_nginx_process_connections{state="waiting"})
+  legendFormat: Waiting
   description: ingresscontroller nginx connection waiting
 ---
 kind: MonitorMetric
@@ -3344,8 +3097,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="waiting"}) by (instance)
-  legendFormat: Nginx waiting connection
+  expression: sum(nginx_ingress_controller_nginx_process_connections{state="waiting"}) by (instance)
+  legendFormat: Waiting([[instance]])
   description: ingresscontroller nginx connection waiting
 ---
 kind: MonitorMetric
@@ -3360,8 +3113,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="writing"})
-  legendFormat: Writing connections
+  expression: sum(nginx_ingress_controller_nginx_process_connections{state="writing"})
+  legendFormat: Writing
   description: ingresscontroller nginx connection writing
 ---
 kind: MonitorMetric
@@ -3376,8 +3129,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="writing"}) by (instance)
-  legendFormat: Writing connections
+  expression: sum(nginx_ingress_controller_nginx_process_connections{state="writing"}) by (instance)
+  legendFormat: Writing([[instance]])
   description: ingresscontroller nginx connection writing
 ---
 kind: MonitorMetric
@@ -3392,8 +3145,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="accepted"})
-  legendFormat: Accepted connections
+  expression: sum(ceil(increase(nginx_ingress_controller_nginx_process_connections_total{state="accepted"}[5m])))
+  legendFormat: Accepted
   description: ingresscontroller nginx connection accepted
 ---
 kind: MonitorMetric
@@ -3408,8 +3161,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="accepted"}) by (instance)
-  legendFormat: Accepted connections
+  expression: sum(ceil(increase(nginx_ingress_controller_nginx_process_connections_total{state="accepted"}[5m]))) by (instance)
+  legendFormat: Accepted([[instance]])
   description: ingresscontroller nginx connection accepted
 ---
 kind: MonitorMetric
@@ -3424,8 +3177,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="active"})
-  legendFormat: Active connections
+  expression: sum(ceil(increase(nginx_ingress_controller_nginx_process_connections_total{state="active"}[5m])))
+  legendFormat: Active
   description: ingresscontroller nginx connection active
 ---
 kind: MonitorMetric
@@ -3440,8 +3193,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="active"}) by (instance)
-  legendFormat: Active connections
+  expression: sum(ceil(increase(nginx_ingress_controller_nginx_process_connections_total{state="active"}[5m]))) by (instance)
+  legendFormat: Active([[instance]])
   description: ingresscontroller nginx connection active
 ---
 kind: MonitorMetric
@@ -3456,8 +3209,8 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="handled"})
-  legendFormat: Handled connections
+  expression: sum(ceil(increase(nginx_ingress_controller_nginx_process_connections_total{state="handled"}[5m])))
+  legendFormat: Handled
   description: ingresscontroller nginx connection handled
 ---
 kind: MonitorMetric
@@ -3472,46 +3225,14 @@ metadata:
     level: cluster
     source: rancher-monitoring
 spec:
-  expression: sum(nginx_connections{state="handled"}) by (instance)
-  legendFormat: Handled connections
+  expression: sum(ceil(increase(nginx_ingress_controller_nginx_process_connections_total{state="handled"}[5m]))) by (instance)
+  legendFormat: Handled([[instance]])
   description: ingresscontroller nginx connection handled
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
 metadata:
-  name: ingresscontroller-upstream-response-seconds-by-host
-  labels:
-    app: metric-expression
-    component: ingresscontroller
-    details: "false"
-    level: cluster
-    metric: upstream-response-seconds
-    source: rancher-monitoring
-spec:
-  expression: sort_desc(max(upstream_response_time_seconds_sum) by (host, path))
-  legendFormat: Upstream response seconds(host:[[host]] path:[[path]])
-  description: ingresscontroller nginx upstream response seconds by host
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: ingresscontroller-upstream-response-seconds-by-host-details
-  labels:
-    app: metric-expression
-    component: ingresscontroller
-    details: "true"
-    level: cluster
-    metric: upstream-response-seconds
-    source: rancher-monitoring
-spec:
-  expression: sort_desc(max(upstream_response_time_seconds_sum) by (host, path))
-  legendFormat: Upstream response seconds(host:[[host]] path:[[path]])
-  description: ingresscontroller nginx upstream response seconds by host
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: ingresscontroller-nginx-process-seconds-by-path
+  name: ingresscontroller-nginx-process-seconds-by-host
   labels:
     app: metric-expression
     component: ingresscontroller
@@ -3520,14 +3241,14 @@ metadata:
     metric: request-process-seconds
     source: rancher-monitoring
 spec:
-  expression: max(request_duration_seconds_bucket{le="1"}) by (host, path)
-  legendFormat: Request duration(host:[[host]] path:[[path]])
-  description: ingresscontroller nginx request duration by path
+  expression: topk(10, histogram_quantile(0.95,sum by (le, host)(rate(nginx_ingress_controller_request_duration_seconds_bucket{host!="_"}[5m]))))
+  legendFormat: Request duration(host:[[host]])
+  description: top 10 ingresscontroller nginx request duration by host
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
 metadata:
-  name: ingresscontroller-nginx-process-seconds-by-path-details
+  name: ingresscontroller-nginx-process-seconds-by-host-details
   labels:
     app: metric-expression
     component: ingresscontroller
@@ -3536,9 +3257,9 @@ metadata:
     metric: request-process-seconds
     source: rancher-monitoring
 spec:
-  expression: max(request_duration_seconds_bucket{le="1"}) by (host, path)
+  expression:  topk(10, histogram_quantile(0.95,sum by (le, host, path)(rate(nginx_ingress_controller_request_duration_seconds_bucket{host!="_"}[5m]))))
   legendFormat: Request duration(host:[[host]] path:[[path]])
-  description: ingresscontroller nginx request duration by path
+  description: top 10 ingresscontroller nginx request duration by path
 ---
 
 ---
@@ -3557,7 +3278,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-     * 8 / 1024
   legendFormat: Transmit
   description: node network transmit bytes sum rate
 ---
@@ -3575,8 +3295,8 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-    by (device) * 8 / 1024
-  legendFormat: '[[device]]'
+    by (device)
+  legendFormat: 'Transmit([[device]])'
   description: node network transmit bytes sum rate
 ---
 kind: MonitorMetric
@@ -3593,7 +3313,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_drop_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-    
   legendFormat: Receive packets
   description: node network receive packets dropped sum rate
 ---
@@ -3628,8 +3347,7 @@ metadata:
     metric: network-transmit-packets-sum-rate
     source: rancher-monitoring
 spec:
-  expression: sum(rate(node_network_transmit_packets_total{instance=~"$instance"}[5m]))
-    
+  expression: sum(rate(node_network_transmit_packets_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
   legendFormat: Transmit packets
   description: node network transmit packets sum rate
 ---
@@ -3646,7 +3364,7 @@ metadata:
     metric: network-transmit-packets-sum-rate
     source: rancher-monitoring
 spec:
-  expression: sum(rate(node_network_transmit_packets_total{instance=~"$instance"}[5m]))
+  expression: sum(rate(node_network_transmit_packets_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
     by (device)
   legendFormat: Transmit packets([[device]])
   description: node network transmit packets sum rate
@@ -3665,7 +3383,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_disk_written_bytes_total{instance=~"$instance"}[5m]))
-     * 8 / 1024
   legendFormat: Write
   description: node disk io writes bytes sum rate
 ---
@@ -3683,7 +3400,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_disk_written_bytes_total{instance=~"$instance"}[5m]))
-    by (device) * 8 / 1024
+    by (device)
   legendFormat: Write([[device]])
   description: node disk io writes bytes sum rate
 ---
@@ -3700,8 +3417,7 @@ metadata:
     metric: disk-io-reads-bytes-sum-rate
     source: rancher-monitoring
 spec:
-  expression: sum(rate(node_disk_read_bytes_total{instance=~"$instance"}[5m])) by
-    () * 8 / 1024
+  expression: sum(rate(node_disk_read_bytes_total{instance=~"$instance"}[5m]))
   legendFormat: Read
   description: node disk io reads bytes sum rate
 ---
@@ -3719,7 +3435,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_disk_read_bytes_total{instance=~"$instance"}[5m])) by
-    (device) * 8 / 1024
+    (device)
   legendFormat: Read([[device]])
   description: node disk io reads bytes sum rate
 ---
@@ -3738,7 +3454,6 @@ spec:
   expression: (sum(node_filesystem_size_bytes{device!="rootfs",instance=~"$instance"})
      - sum(node_filesystem_free_bytes{device!="rootfs",instance=~"$instance"})
     ) / sum(node_filesystem_size_bytes{device!="rootfs",instance=~"$instance"})
-    
   legendFormat: Disk usage
   description: node fs usage percent
 ---
@@ -3775,7 +3490,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_packets_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-    
   legendFormat: Receive packets
   description: node network receive packets sum rate
 ---
@@ -3811,7 +3525,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_errs_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-    
   legendFormat: Transmit errors
   description: node network transmit errors sum rate
 ---
@@ -3836,36 +3549,34 @@ spec:
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
 metadata:
-  name: node-cpu-load-5
+  name: node-cpu-load-1
   labels:
     app: metric-expression
     component: node
     details: "false"
     graph: cpu-load
     level: cluster
-    metric: cpu-load-5
+    metric: cpu-load-1
     source: rancher-monitoring
 spec:
-  expression: sum(node_load1{instance=~"$instance"})  / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
-    
+  expression: sum(node_load1{instance=~"$instance"}) / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
   legendFormat: Load1
   description: node cpu load 1
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
 metadata:
-  name: node-cpu-load-5-details
+  name: node-cpu-load-1-details
   labels:
     app: metric-expression
     component: node
     details: "true"
     graph: cpu-load
     level: cluster
-    metric: cpu-load-5
+    metric: cpu-load-1
     source: rancher-monitoring
 spec:
-  expression: sum(node_load1{instance=~"$instance"})  / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
-    
+  expression: sum(node_load1{instance=~"$instance"}) / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
   legendFormat: Load1
   description: node cpu load 1
 ---
@@ -3882,8 +3593,7 @@ metadata:
     metric: cpu-load-15
     source: rancher-monitoring
 spec:
-  expression: sum(node_load15{instance=~"$instance"})  / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
-    
+  expression: sum(node_load15{instance=~"$instance"}) / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
   legendFormat: Load15
   description: node cpu load 15
 ---
@@ -3900,8 +3610,7 @@ metadata:
     metric: cpu-load-15
     source: rancher-monitoring
 spec:
-  expression: sum(node_load15{instance=~"$instance"})  / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
-    
+  expression: sum(node_load15{instance=~"$instance"}) / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
   legendFormat: Load15
   description: node cpu load 15
 ---
@@ -3933,7 +3642,7 @@ metadata:
     metric: cpu-usage-seconds-sum-rate
     source: rancher-monitoring
 spec:
-  expression: avg(irate(node_cpu_seconds_total{instance=~"$instance"}[5m]))by (mode) 
+  expression: avg(irate(node_cpu_seconds_total{mode!="idle", instance=~"$instance"}[5m]))by (mode) 
   legendFormat: '[[mode]]'
   description: node cpu usage seconds sum rate
 ---
@@ -3985,7 +3694,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-     * 8 / 1024
   legendFormat: Receive
   description: node network receive bytes sum rate
 ---
@@ -4003,7 +3711,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_bytes_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-    by (device) * 8 / 1024
+    by (device)
   legendFormat: Receive([[device]])
   description: node network receive bytes sum rate
 ---
@@ -4021,7 +3729,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_receive_errs_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-    
   legendFormat: Receive packets
   description: node network receive errors sum rate
 ---
@@ -4056,14 +3763,14 @@ metadata:
     metric: cpu-load-5
     source: rancher-monitoring
 spec:
-  expression: sum(node_load5{instance=~"$instance"})  / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
+  expression: sum(node_load5{instance=~"$instance"}) / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
   legendFormat: Load5
   description: node cpu load 5
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
 metadata:
-  name: node-cpu-load-1-details
+  name: node-cpu-load-5-details
   labels:
     app: metric-expression
     component: node
@@ -4073,7 +3780,7 @@ metadata:
     metric: cpu-load-5
     source: rancher-monitoring
 spec:
-  expression: sum(node_load5{instance=~"$instance"})  / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
+  expression: sum(node_load5{instance=~"$instance"}) / count(node_cpu_seconds_total{mode="system",instance=~"$instance"})
   legendFormat: Load5
   description: node cpu load 5
 ---
@@ -4091,7 +3798,6 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(node_network_transmit_drop_total{device!~"lo|veth.*|docker.*|flannel.*|cali.*|cbr.*",instance=~"$instance"}[5m]))
-    
   legendFormat: Transmit dropped
   description: node network transmit packets dropped sum rate
 ---
@@ -4124,11 +3830,11 @@ metadata:
     app: metric-expression
     component: pod
     details: "false"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_cfs_throttled_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) 
   legendFormat: CPU cfs throttled
   description: pod cpu cfs throttled seconds sum rate
@@ -4141,50 +3847,14 @@ metadata:
     app: metric-expression
     component: pod
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_cfs_throttled_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_cfs_throttled_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) by (container_name)
   legendFormat: CPU cfs throttled([[container_name]])
   description: pod cpu cfs throttled seconds sum rate
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: pod-memory-usage-percent
-  labels:
-    app: metric-expression
-    component: pod
-    details: "false"
-    level: project
-    metric: memory-usage-percent
-    source: rancher-monitoring
-spec:
-  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name!=""})  / sum(label_join(kube_pod_container_resource_limits_memory_bytes{namespace=~"$namespace",
-    pod=~"$InstanceName"},"pod_name", "", "pod")) 
-  legendFormat: Memory
-  description: pod memory usage percent
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: pod-memory-usage-percent-details
-  labels:
-    app: metric-expression
-    component: pod
-    details: "true"
-    level: project
-    metric: memory-usage-percent
-    source: rancher-monitoring
-spec:
-  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name!=""}) by (container_name) / sum(label_join(kube_pod_container_resource_limits_memory_bytes{namespace=~"$namespace",
-    pod=~"$InstanceName"},"pod_name", "", "pod")) by (container_name)
-  legendFormat: Memory([[container_name]])
-  description: pod memory usage percent
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -4252,8 +3922,8 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_receive_packets_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name)
-  legendFormat: Receive packets([[container_name]])
+    container_name!=""}[5m]))
+  legendFormat: Receive packets
   description: pod network receive packets sum rate
 ---
 kind: MonitorMetric
@@ -4288,8 +3958,8 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_transmit_packets_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name)
-  legendFormat: Transmit packets([[container_name]])
+    container_name!=""}[5m]))
+  legendFormat: Transmit packets
   description: pod network transmit packets sum rate
 ---
 kind: MonitorMetric
@@ -4300,11 +3970,11 @@ metadata:
     app: metric-expression
     component: pod
     details: "false"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_user_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_user_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) 
   legendFormat: CPU user seconds
   description: pod cpu user seconds sum rate
@@ -4317,11 +3987,11 @@ metadata:
     app: metric-expression
     component: pod
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_user_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_user_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) by (container_name)
   legendFormat: CPU user seconds([[container_name]])
   description: pod cpu user seconds sum rate
@@ -4340,7 +4010,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_reads_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))   * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Read
   description: pod disk io reads bytes sum rate
 ---
@@ -4358,7 +4028,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_reads_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name)  * 8 / 1024
+    container_name!=""}[5m])) by (container_name)
   legendFormat: Read([[container_name]])
   description: pod disk io reads bytes sum rate
 ---
@@ -4376,7 +4046,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_receive_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))  * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Receive
   description: pod network receive bytes sum rate
 ---
@@ -4394,7 +4064,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_receive_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name) * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Receive
   description: pod network receive bytes sum rate
 ---
@@ -4412,7 +4082,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_transmit_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))  * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Transmit
   description: pod network transmit bytes sum rate
 ---
@@ -4430,7 +4100,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_transmit_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name) * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Transmit
   description: pod network transmit bytes sum rate
 ---
@@ -4466,7 +4136,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_receive_packets_dropped_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name)
+    container_name!=""}[5m]))
   legendFormat: Receive dropped
   description: pod network receive packets dropped sum rate
 ---
@@ -4482,7 +4152,7 @@ metadata:
     metric: memory-usage-bytes-sum
     source: rancher-monitoring
 spec:
-  expression: sum(container_memory_working_set_bytes{name!~"POD", namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(container_memory_working_set_bytes{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}) 
   legendFormat: Memory usage
   description: pod memory usage bytes sum
@@ -4499,7 +4169,7 @@ metadata:
     metric: memory-usage-bytes-sum
     source: rancher-monitoring
 spec:
-  expression: sum(container_memory_working_set_bytes{name!~"POD", namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(container_memory_working_set_bytes{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}) by (container_name)
   legendFormat: Memory usage([[container_name]])
   description: pod memory usage bytes sum
@@ -4518,7 +4188,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_writes_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))  * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Write
   description: pod disk io writes bytes sum rate
 ---
@@ -4536,7 +4206,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_writes_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name) * 8 / 1024
+    container_name!=""}[5m])) by (container_name)
   legendFormat: Write([[container_name]])
   description: pod disk io writes bytes sum rate
 ---
@@ -4572,7 +4242,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_receive_errors_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name)
+    container_name!=""}[5m]))
   legendFormat: Receive errors
   description: pod network receive errors sum rate
 ---
@@ -4588,7 +4258,7 @@ metadata:
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_usage_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_usage_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) 
   legendFormat: CPU usage
   description: pod CPU usage sum rate
@@ -4601,11 +4271,11 @@ metadata:
     app: metric-expression
     component: pod
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_usage_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_usage_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) by (container_name)
   legendFormat: CPU usage([[container_name]])
   description: pod CPU usage sum rate
@@ -4642,7 +4312,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_transmit_errors_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name)
+    container_name!=""}[5m]))
   legendFormat: Transmit errors
   description: pod network transmit errors sum rate
 ---
@@ -4678,7 +4348,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_transmit_packets_dropped_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (container_name)
+    container_name!=""}[5m]))
   legendFormat: Transmit dropped
   description: pod network transmit packets dropped sum rate
 ---
@@ -4690,11 +4360,11 @@ metadata:
     app: metric-expression
     component: pod
     details: "false"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_system_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_system_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) 
   legendFormat: CPU system seconds
   description: pod cpu system seconds sum rate
@@ -4707,11 +4377,11 @@ metadata:
     app: metric-expression
     component: pod
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     source: rancher-monitoring
 spec:
-  expression: sum(rate(container_cpu_system_seconds_total{namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(rate(container_cpu_system_seconds_total{container_name!="POD",namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}[5m])) by (container_name)
   legendFormat: CPU system seconds([[container_name]])
   description: pod cpu system seconds sum rate
@@ -4731,8 +4401,7 @@ metadata:
     metric: e-2-e-scheduling-latency-seconds-quantile
     source: rancher-monitoring
 spec:
-  expression: histogram_quantile(0.99, sum(scheduler_e2e_scheduling_latency_microseconds_bucket)
-    by (le, instance)) / 1e+06
+  expression: sum(histogram_quantile(0.99, sum(scheduler_e2e_scheduling_latency_microseconds_bucket) by (le, instance)) / 1e+06)
   legendFormat: E2E latency
   description: scheduler e 2 e scheduling latency seconds quantile
 ---
@@ -4748,8 +4417,7 @@ metadata:
     metric: e-2-e-scheduling-latency-seconds-quantile
     source: rancher-monitoring
 spec:
-  expression: histogram_quantile(0.99, sum(scheduler_e2e_scheduling_latency_microseconds_bucket)
-    by (le, instance)) / 1e+06
+  expression: histogram_quantile(0.99, sum(scheduler_e2e_scheduling_latency_microseconds_bucket) by (le, instance)) / 1e+06
   legendFormat: E2E latency([[instance]])
   description: scheduler e 2 e scheduling latency seconds quantile
 ---
@@ -4834,7 +4502,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_writes_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))   * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Write
   description: workload disk io writes bytes sum rate
 ---
@@ -4852,7 +4520,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_writes_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (pod_name)  * 8 / 1024
+    container_name!=""}[5m])) by (pod_name)
   legendFormat: Write([[pod_name]])
   description: workload disk io writes bytes sum rate
 ---
@@ -4870,7 +4538,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_reads_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))  * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Read
   description: workload disk io reads bytes sum rate
 ---
@@ -4888,7 +4556,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_fs_reads_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (pod_name) * 8 / 1024
+    container_name!=""}[5m])) by (pod_name)
   legendFormat: Read([[pod_name]])
   description: workload disk io reads bytes sum rate
 ---
@@ -5042,7 +4710,7 @@ metadata:
     app: metric-expression
     component: workload
     details: "false"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     metric: cpu-system-seconds-sum-rate
     source: rancher-monitoring
@@ -5060,7 +4728,7 @@ metadata:
     app: metric-expression
     component: workload
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     metric: cpu-system-seconds-sum-rate
     source: rancher-monitoring
@@ -5084,7 +4752,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_receive_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))  * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Receive
   description: workload network receive bytes sum rate
 ---
@@ -5102,7 +4770,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_receive_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (pod_name) * 8 / 1024
+    container_name!=""}[5m])) by (pod_name)
   legendFormat: Receive([[pod_name]])
   description: workload network receive bytes sum rate
 ---
@@ -5190,7 +4858,7 @@ metadata:
     metric: memory-usage-bytes-sum
     source: rancher-monitoring
 spec:
-  expression: sum(container_memory_working_set_bytes{name!~"POD", namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}) 
   legendFormat: Memory
   description: workload memory usage bytes sum
@@ -5207,46 +4875,10 @@ metadata:
     metric: memory-usage-bytes-sum
     source: rancher-monitoring
 spec:
-  expression: sum(container_memory_working_set_bytes{name!~"POD", namespace=~"$namespace",pod_name=~"$podName",
+  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace",pod_name=~"$podName",
     container_name!=""}) by (pod_name)
   legendFormat: '[[pod_name]]'
   description: workload memory usage bytes sum
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: workload-memory-usage-percent
-  labels:
-    app: metric-expression
-    component: workload
-    details: "false"
-    level: project
-    metric: memory-usage-percent
-    source: rancher-monitoring
-spec:
-  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name!=""})  / sum(label_join(kube_pod_container_resource_limits_memory_bytes{namespace=~"$namespace",
-    pod=~"$InstanceName"},"pod_name", "", "pod")) 
-  legendFormat: Usage percent
-  description: workload memory usage percent
----
-kind: MonitorMetric
-apiVersion: management.cattle.io/v3
-metadata:
-  name: workload-memory-usage-percent-details
-  labels:
-    app: metric-expression
-    component: workload
-    details: "true"
-    level: project
-    metric: memory-usage-percent
-    source: rancher-monitoring
-spec:
-  expression: sum(container_memory_working_set_bytes{namespace=~"$namespace", pod_name=~"$podName",
-    container_name!=""}) by (pod_name) / sum(label_join(kube_pod_container_resource_limits_memory_bytes{namespace=~"$namespace",
-    pod=~"$InstanceName"},"pod_name", "", "pod")) by (pod_name)
-  legendFormat: Usage percent([[pod_name]])
-  description: workload memory usage percent
 ---
 kind: MonitorMetric
 apiVersion: management.cattle.io/v3
@@ -5262,7 +4894,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_transmit_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m]))  * 8 / 1024
+    container_name!=""}[5m]))
   legendFormat: Transmit
   description: workload network transmit bytes sum rate
 ---
@@ -5280,7 +4912,7 @@ metadata:
     source: rancher-monitoring
 spec:
   expression: sum(rate(container_network_transmit_bytes_total{namespace=~"$namespace",pod_name=~"$podName",
-    container_name!=""}[5m])) by (pod_name) * 8 / 1024
+    container_name!=""}[5m])) by (pod_name)
   legendFormat: Transmit([[pod_name]])
   description: workload network transmit bytes sum rate
 ---
@@ -5364,7 +4996,7 @@ metadata:
     app: metric-expression
     component: workload
     details: "false"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     metric: cpu-user-seconds-sum-rate
     source: rancher-monitoring
@@ -5382,7 +5014,7 @@ metadata:
     app: metric-expression
     component: workload
     details: "true"
-    graph: cpu-usage-details
+    graph: cpu-usage
     level: project
     metric: cpu-user-seconds-sum-rate
     source: rancher-monitoring
@@ -5400,6 +5032,7 @@ metadata:
     app: metric-expression
     component: workload
     details: "false"
+    graph: cpu-usage
     level: project
     metric: cpu-cfs-throttled-seconds-sum-rate
     source: rancher-monitoring
@@ -5417,6 +5050,7 @@ metadata:
     app: metric-expression
     component: workload
     details: "true"
+    graph: cpu-usage
     level: project
     metric: cpu-cfs-throttled-seconds-sum-rate
     source: rancher-monitoring
@@ -5425,7 +5059,7 @@ spec:
     container_name!=""}[5m])) by (pod_name)
   legendFormat: CPU cfs throttled([[pod_name]])
   description: workload cpu cfs throttled seconds sum rate
----  
+---
 `
 
 	ProjectMetricExpression = `
@@ -5442,14 +5076,10 @@ spec:
   resourceType: container
   priority: 800
   title: container-cpu-usage
-  metricsSelector:
-    details: "false"
-    component: container
-    graph: cpu-usage
   detailsMetricsSelector:
     details: "true"
     component: container
-    graph: cpu-usage-details
+    graph: cpu-usage
   yAxis:
     unit: mcpu
 ---
@@ -5466,10 +5096,6 @@ spec:
   resourceType: container
   priority: 801
   title: container-memory-usage-bytes-sum
-  metricsSelector:
-    details: "false"
-    component: container
-    metric: memory-usage-bytes-sum
   detailsMetricsSelector:
     details: "true"
     component: container
@@ -5485,69 +5111,17 @@ metadata:
     source: rancher-monitoring
     level: project
     component: container
-  name: container-network-io
-spec:
-  resourceType: container
-  priority: 802
-  title: container-network-io
-  metricsSelector:
-    details: "false"
-    component: container
-    graph: network-io
-  detailsMetricsSelector:
-    details: "true"
-    component: container
-    graph: network-io
-  yAxis:
-    unit: kbps
----
-apiVersion: management.cattle.io/v3
-kind: ProjectMonitorGraph
-metadata:
-  labels:
-    app: metric-expression
-    source: rancher-monitoring
-    level: project
-    component: container
-  name: container-network-packet
-spec:
-  resourceType: container
-  priority: 803
-  title: container-network-packet
-  metricsSelector:
-    details: "false"
-    component: container
-    graph: network-packet
-  detailsMetricsSelector:
-    details: "true"
-    component: container
-    graph: network-packet
-  yAxis:
-    unit: pps
----
-apiVersion: management.cattle.io/v3
-kind: ProjectMonitorGraph
-metadata:
-  labels:
-    app: metric-expression
-    source: rancher-monitoring
-    level: project
-    component: container
   name: container-disk-io
 spec:
   resourceType: container
   priority: 804
   title: container-disk-io
-  metricsSelector:
-    details: "false"
-    component: container
-    graph: disk-io
   detailsMetricsSelector:
     details: "true"
     component: container
     graph: disk-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ProjectMonitorGraph
@@ -5569,7 +5143,7 @@ spec:
   detailsMetricsSelector:
     details: "true"
     component: pod
-    graph: cpu-usage-details
+    graph: cpu-usage
   yAxis:
     unit: mcpu
 ---
@@ -5619,7 +5193,7 @@ spec:
     component: pod
     graph: network-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ProjectMonitorGraph
@@ -5667,7 +5241,7 @@ spec:
     component: pod
     graph: disk-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ProjectMonitorGraph
@@ -5739,7 +5313,7 @@ spec:
     component: workload
     graph: network-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 apiVersion: management.cattle.io/v3
 kind: ProjectMonitorGraph
@@ -5787,7 +5361,7 @@ spec:
     component: workload
     graph: disk-io
   yAxis:
-    unit: kbps
+    unit: bps
 ---
 `
 )

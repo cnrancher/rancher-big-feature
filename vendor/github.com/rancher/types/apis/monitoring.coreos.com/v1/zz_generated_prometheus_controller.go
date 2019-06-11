@@ -6,6 +6,7 @@ import (
 	"github.com/coreos/prometheus-operator/pkg/client/monitoring/v1"
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,7 +30,17 @@ var (
 
 		Kind: PrometheusGroupVersionKind.Kind,
 	}
+
+	PrometheusGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "prometheuses",
+	}
 )
+
+func init() {
+	resource.Put(PrometheusGroupVersionResource)
+}
 
 func NewPrometheus(namespace, name string, obj v1.Prometheus) *v1.Prometheus {
 	obj.APIVersion, obj.Kind = PrometheusGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewPrometheus(namespace, name string, obj v1.Prometheus) *v1.Prometheus {
 type PrometheusList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Prometheus
+	Items           []v1.Prometheus `json:"items"`
 }
 
 type PrometheusHandlerFunc func(key string, obj *v1.Prometheus) (runtime.Object, error)

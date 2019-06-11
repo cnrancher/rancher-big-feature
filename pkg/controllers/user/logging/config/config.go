@@ -7,7 +7,7 @@ import (
 const (
 	AppName           = "rancher-logging"
 	TesterAppName     = "rancher-logging-tester"
-	AppInitVersion    = "0.0.1"
+	AppInitVersion    = "0.1.1"
 	systemCatalogName = "system-library"
 	templateName      = "rancher-logging"
 )
@@ -82,6 +82,10 @@ func RancherLoggingTemplateID() string {
 	return fmt.Sprintf("%s-%s", systemCatalogName, templateName)
 }
 
+func RancherLoggingFullVersion() string {
+	return fmt.Sprintf("%s-%s-%s", systemCatalogName, templateName, AppInitVersion)
+}
+
 func RancherLoggingCatalogID(version string) string {
 	return fmt.Sprintf("catalog://?catalog=%s&template=%s&version=%s", systemCatalogName, templateName, version)
 }
@@ -92,4 +96,8 @@ func RancherLoggingConfigSecretName() string {
 
 func RancherLoggingSSLSecretName() string {
 	return fmt.Sprintf("%s-%s", AppName, LoggingSSLSecretName)
+}
+
+func GetNamespacePattern(namespace string) string {
+	return fmt.Sprintf("^%s$", namespace)
 }

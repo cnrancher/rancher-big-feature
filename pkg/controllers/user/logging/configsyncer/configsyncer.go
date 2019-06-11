@@ -7,6 +7,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	loggingconfig "github.com/rancher/rancher/pkg/controllers/user/logging/config"
+	"github.com/rancher/rancher/pkg/controllers/user/logging/passwordgetter"
 	"github.com/rancher/rancher/pkg/project"
 	mgmtv3 "github.com/rancher/types/apis/management.cattle.io/v3"
 	projectv3 "github.com/rancher/types/apis/project.cattle.io/v3"
@@ -20,6 +21,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+const (
+	passwordSecretPrefix = "cattle-global-data:"
+)
+
 // This controller is responsible for generate fluentd config
 // and updating the config secret
 // so the config reload could detect the file change and reload
@@ -29,8 +34,10 @@ func NewConfigSyncer(cluster *config.UserContext, SecretManager *SecretManager) 
 	clusterLoggingLister := cluster.Management.Management.ClusterLoggings(clusterName).Controller().Lister()
 	projectLoggingLister := cluster.Management.Management.ProjectLoggings(metav1.NamespaceAll).Controller().Lister()
 	namespaceLister := cluster.Core.Namespaces(metav1.NamespaceAll).Controller().Lister()
+	secrets := cluster.Management.Core.Secrets(metav1.NamespaceAll)
 
-	configGenerator := NewConfigGenerator(clusterName, clusterLoggingLister, projectLoggingLister, namespaceLister)
+	configGenerator := NewConfigGenerator(clusterName, projectLoggingLister, namespaceLister)
+	passwordGetter := passwordgetter.NewPasswordGetter(secrets)
 
 	return &ConfigSyncer{
 		apps:                 cluster.Management.Project.Apps(metav1.NamespaceAll),
@@ -40,6 +47,7 @@ func NewConfigSyncer(cluster *config.UserContext, SecretManager *SecretManager) 
 		projectLister:        cluster.Management.Management.Projects(clusterName).Controller().Lister(),
 		secretManager:        SecretManager,
 		configGenerator:      configGenerator,
+		passwordGetter:       passwordGetter,
 	}
 }
 
@@ -51,6 +59,7 @@ type ConfigSyncer struct {
 	projectLister        mgmtv3.ProjectLister
 	secretManager        *SecretManager
 	configGenerator      *ConfigGenerator
+	passwordGetter       *passwordgetter.PasswordGetter
 }
 
 func (s *ConfigSyncer) NamespaceSync(key string, obj *k8scorev1.Namespace) (runtime.Object, error) {
@@ -83,9 +92,18 @@ func (s *ConfigSyncer) sync() error {
 		return nil
 	}
 
-	clusterLoggings, err := s.clusterLoggingLister.List("", labels.NewSelector())
+	allClusterLoggings, err := s.clusterLoggingLister.List("", labels.NewSelector())
 	if err != nil {
 		return errors.Wrapf(err, "List cluster loggings failed")
+	}
+
+	var clusterLoggings []*mgmtv3.ClusterLogging
+	for _, logging := range allClusterLoggings {
+		cp := logging.DeepCopy()
+		if err := s.passwordGetter.GetPasswordFromSecret(&cp.Spec.LoggingTargets); err != nil {
+			return errors.Wrap(err, "get password from secret failed")
+		}
+		clusterLoggings = append(clusterLoggings, cp)
 	}
 
 	allProjectLoggings, err := s.projectLoggingLister.List("", labels.NewSelector())
@@ -96,7 +114,12 @@ func (s *ConfigSyncer) sync() error {
 	var projectLoggings []*mgmtv3.ProjectLogging
 	for _, logging := range allProjectLoggings {
 		if controller.ObjectInCluster(s.clusterName, logging) {
-			projectLoggings = append(projectLoggings, logging)
+			cp := logging.DeepCopy()
+			if err := s.passwordGetter.GetPasswordFromSecret(&cp.Spec.LoggingTargets); err != nil {
+				return errors.Wrap(err, "get password from secret failed")
+			}
+
+			projectLoggings = append(projectLoggings, cp)
 		}
 	}
 

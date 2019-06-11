@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/apps/v1beta2"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: StatefulSetGroupVersionKind.Kind,
 	}
+
+	StatefulSetGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "statefulsets",
+	}
 )
+
+func init() {
+	resource.Put(StatefulSetGroupVersionResource)
+}
 
 func NewStatefulSet(namespace, name string, obj v1beta2.StatefulSet) *v1beta2.StatefulSet {
 	obj.APIVersion, obj.Kind = StatefulSetGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewStatefulSet(namespace, name string, obj v1beta2.StatefulSet) *v1beta2.St
 type StatefulSetList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1beta2.StatefulSet
+	Items           []v1beta2.StatefulSet `json:"items"`
 }
 
 type StatefulSetHandlerFunc func(key string, obj *v1beta2.StatefulSet) (runtime.Object, error)

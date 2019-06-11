@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/runtime"
-
 	"github.com/rancher/rancher/pkg/pipeline/remote/model"
 	"github.com/rancher/rancher/pkg/pipeline/utils"
 	"github.com/rancher/rancher/pkg/ref"
@@ -15,8 +13,10 @@ import (
 	pv3 "github.com/rancher/types/apis/project.cattle.io/v3"
 	pclient "github.com/rancher/types/client/project/v3"
 	"github.com/rancher/types/config"
+
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // This controller is responsible for initializing source code
@@ -61,6 +61,10 @@ func (l *Syncer) Sync(key string, obj *v3.Project) (runtime.Object, error) {
 		if len(splits) == 2 {
 			projectID = splits[1]
 		}
+		// remove the system account created for this project
+		if err := l.systemAccountManager.RemoveSystemAccount(projectID); err != nil {
+			return nil, err
+		}
 		return nil, l.cleanInternalRegistryEntry(projectID)
 	}
 
@@ -70,7 +74,7 @@ func (l *Syncer) Sync(key string, obj *v3.Project) (runtime.Object, error) {
 	if err := l.addPipelineSettings(obj); err != nil {
 		return nil, err
 	}
-	return nil, l.addSystemToken(obj)
+	return nil, l.ensureSystemAccount(obj)
 }
 
 func (l *Syncer) addSourceCodeProviderConfigs(obj *v3.Project) error {
@@ -131,11 +135,8 @@ func (l *Syncer) addPipelineSetting(settingName string, value string, obj *v3.Pr
 	return nil
 }
 
-func (l *Syncer) addSystemToken(obj *v3.Project) error {
+func (l *Syncer) ensureSystemAccount(obj *v3.Project) error {
 	if err := l.systemAccountManager.GetOrCreateProjectSystemAccount(ref.Ref(obj)); err != nil {
-		return err
-	}
-	if _, err := l.systemAccountManager.GetOrCreateProjectSystemToken(obj.Name); err != nil {
 		return err
 	}
 	return nil

@@ -14,13 +14,17 @@ import (
 	"github.com/rancher/norman/types/set"
 	"github.com/rancher/norman/types/values"
 	gaccess "github.com/rancher/rancher/pkg/api/customization/globalnamespaceaccess"
-
+	"github.com/rancher/rancher/pkg/ref"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	managementschema "github.com/rancher/types/apis/management.cattle.io/v3/schema"
+	pv3 "github.com/rancher/types/apis/project.cattle.io/v3"
 	"github.com/rancher/types/client/management/v3"
 	"github.com/sirupsen/logrus"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 )
 
 type Wrapper struct {
@@ -31,12 +35,18 @@ type Wrapper struct {
 	CrtbLister                    v3.ClusterRoleTemplateBindingLister
 	RoleTemplateLister            v3.RoleTemplateLister
 	Users                         v3.UserInterface
+	GrbLister                     v3.GlobalRoleBindingLister
+	GrLister                      v3.GlobalRoleLister
+	Prtbs                         v3.ProjectRoleTemplateBindingInterface
+	Crtbs                         v3.ClusterRoleTemplateBindingInterface
+	ProjectLister                 v3.ProjectLister
+	ClusterLister                 v3.ClusterLister
+	Apps                          pv3.AppInterface
 }
 
 const (
-	mcAppLabel            = "io.cattle.field/multiClusterAppId"
-	creatorIDAnn          = "field.cattle.io/creatorId"
-	globalScopeAnswersKey = "global"
+	mcAppLabel   = "io.cattle.field/multiClusterAppId"
+	creatorIDAnn = "field.cattle.io/creatorId"
 )
 
 func (w Wrapper) LinkHandler(apiContext *types.APIContext, next types.RequestHandler) error {
@@ -83,6 +93,12 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 		PrtbLister:         w.PrtbLister,
 		CrtbLister:         w.CrtbLister,
 		RoleTemplateLister: w.RoleTemplateLister,
+		GrbLister:          w.GrbLister,
+		GrLister:           w.GrLister,
+		Prtbs:              w.Prtbs,
+		Crtbs:              w.Crtbs,
+		ProjectLister:      w.ProjectLister,
+		ClusterLister:      w.ClusterLister,
 	}
 	var targetProjects []string
 	callerID := request.Request.Header.Get(gaccess.ImpersonateUserHeader)
@@ -102,7 +118,7 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	if len(split) != 2 {
 		return fmt.Errorf("incorrect multiclusterapp ID %v", request.ID)
 	}
-	mcapp, err := w.MultiClusterAppLister.Get(split[0], split[1])
+	mcapp, err := w.MultiClusterApps.GetNamespaced(split[0], split[1], v1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -140,6 +156,12 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	}
 	// get difference between new and original roles
 	rolesToAdd, rolesToRemove, _ := set.Diff(newRoles, originalRoles)
+	if len(rolesToAdd) == 0 && len(rolesToRemove) == 0 {
+		// this UPDATE request is not modifying the multiclusterapp roles.
+		// So return without calling EnsureRoleInTargets, because this UPDATE could be called by a mcapp member with access type member,
+		// just to update the templateversion or answers; this member is allowed to not have all roles in all targets
+		return nil
+	}
 	if (len(rolesToAdd) != 0 || len(rolesToRemove) != 0) && !ownerAccess {
 		return fmt.Errorf("user %v is not an owner of multiclusterapp %v, cannot edit roles", callerID, mcapp.Name)
 	}
@@ -147,5 +169,35 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	for _, t := range mcapp.Spec.Targets {
 		targetProjects = append(targetProjects, t.ProjectName)
 	}
-	return ma.EnsureRoleInTargets(targetProjects, rolesToAdd, callerID)
+	if err = ma.EnsureRoleInTargets(targetProjects, rolesToAdd, callerID); err != nil {
+		return err
+	}
+	// at this point we know the roles have changed, and that the user has the new roles in targets,
+	// retry underlying app upgrade
+	for _, t := range mcapp.Spec.Targets {
+		_, projectNS := ref.Parse(t.ProjectName)
+		if t.AppName != "" {
+			err := wait.ExponentialBackoff(backoff, func() (bool, error) {
+				app, err := w.Apps.GetNamespaced(projectNS, t.AppName, v1.GetOptions{})
+				if err != nil || app == nil {
+					return false, fmt.Errorf("error %v getting app %s in %s", err, t.AppName, projectNS)
+				}
+				if val, ok := app.Labels["mcapp"]; !ok || val != mcapp.Name {
+					return false, fmt.Errorf("app %s in %s missing multi cluster app label", t.AppName, projectNS)
+				}
+				pv3.AppConditionUserTriggeredAction.True(app)
+				if _, err := w.Apps.Update(app); err != nil {
+					if apierrors.IsConflict(err) {
+						return false, nil
+					}
+					return false, err
+				}
+				return true, nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return ma.RemoveRolesFromTargets(targetProjects, rolesToRemove, mcapp.Name, false)
 }

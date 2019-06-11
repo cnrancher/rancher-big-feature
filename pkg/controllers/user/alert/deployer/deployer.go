@@ -3,6 +3,7 @@ package deployer
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/rancher/norman/controller"
 	alertutil "github.com/rancher/rancher/pkg/controllers/user/alert/common"
@@ -13,6 +14,7 @@ import (
 	projectutil "github.com/rancher/rancher/pkg/project"
 	"github.com/rancher/rancher/pkg/ref"
 	"github.com/rancher/rancher/pkg/settings"
+	"github.com/rancher/rancher/pkg/systemaccount"
 	appsv1beta2 "github.com/rancher/types/apis/apps/v1beta2"
 	"github.com/rancher/types/apis/core/v1"
 	mgmtv3 "github.com/rancher/types/apis/management.cattle.io/v3"
@@ -47,11 +49,13 @@ type Deployer struct {
 }
 
 type appDeployer struct {
-	appsGetter       projectv3.AppsGetter
-	namespaces       v1.NamespaceInterface
-	secrets          v1.SecretInterface
-	templateVersions mgmtv3.CatalogTemplateVersionInterface
-	statefulsets     appsv1beta2.StatefulSetInterface
+	appsGetter           projectv3.AppsGetter
+	namespaces           v1.NamespaceInterface
+	secrets              v1.SecretInterface
+	templateVersions     mgmtv3.CatalogTemplateVersionInterface
+	statefulsets         appsv1beta2.StatefulSetInterface
+	systemAccountManager *systemaccount.Manager
+	deployments          appsv1beta2.DeploymentInterface
 }
 
 type operaterDeployer struct {
@@ -66,11 +70,13 @@ type operaterDeployer struct {
 func NewDeployer(cluster *config.UserContext, manager *manager.AlertManager) *Deployer {
 	appsgetter := cluster.Management.Project
 	ad := &appDeployer{
-		appsGetter:       appsgetter,
-		namespaces:       cluster.Core.Namespaces(metav1.NamespaceAll),
-		secrets:          cluster.Core.Secrets(metav1.NamespaceAll),
-		templateVersions: cluster.Management.Management.CatalogTemplateVersions(namespace.GlobalNamespace),
-		statefulsets:     cluster.Apps.StatefulSets(metav1.NamespaceAll),
+		appsGetter:           appsgetter,
+		namespaces:           cluster.Core.Namespaces(metav1.NamespaceAll),
+		secrets:              cluster.Core.Secrets(metav1.NamespaceAll),
+		templateVersions:     cluster.Management.Management.CatalogTemplateVersions(namespace.GlobalNamespace),
+		statefulsets:         cluster.Apps.StatefulSets(metav1.NamespaceAll),
+		systemAccountManager: systemaccount.NewManager(cluster.Management),
+		deployments:          cluster.Apps.Deployments(metav1.NamespaceAll),
 	}
 
 	op := &operaterDeployer{
@@ -119,7 +125,6 @@ func (d *Deployer) sync() error {
 		return err
 	}
 
-	systemProjectCreator := systemProject.Annotations[creatorIDAnn]
 	systemProjectID := ref.Ref(systemProject)
 
 	needDeploy, err := d.needDeploy()
@@ -135,24 +140,39 @@ func (d *Deployer) sync() error {
 	newCluster.Spec.EnableClusterAlerting = needDeploy
 
 	if needDeploy {
+		operatorAppName, operatorAppNamespace := monitorutil.SystemMonitoringInfo()
+		operatorWorkload, err := d.appDeployer.deployments.GetNamespaced(operatorAppNamespace, fmt.Sprintf("prometheus-operator-%s", operatorAppName), metav1.GetOptions{})
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("get deployment %s/prometheus-operator-%s failed, %v", operatorAppNamespace, operatorAppName, err)
+		}
+		if operatorWorkload == nil || operatorWorkload.DeletionTimestamp != nil {
+			d.clusters.Controller().Enqueue(metav1.NamespaceAll, d.clusterName)
+		}
+
 		if !reflect.DeepEqual(cluster, newCluster) {
 			_, err = d.clusters.Update(newCluster)
 			if err != nil {
 				return fmt.Errorf("update cluster %v failed, %v", d.clusterName, err)
 			}
+
+			cluster, err := d.clusters.Get(d.clusterName, metav1.GetOptions{})
+			if err != nil {
+				return fmt.Errorf("get cluster %s failed, %v", d.clusterName, err)
+			}
+			newCluster = cluster.DeepCopy()
 		}
 
-		if d.alertManager.IsDeploy, err = d.appDeployer.deploy(appName, appTargetNamespace, systemProjectID, systemProjectCreator); err != nil {
+		if d.alertManager.IsDeploy, err = d.appDeployer.deploy(appName, appTargetNamespace, systemProjectID); err != nil {
 			return fmt.Errorf("deploy alertmanager failed, %v", err)
 		}
 
-		return d.appDeployer.isDeploySuccess(newCluster, alertutil.GetAlertManagerDaemonsetName(appName), appTargetNamespace)
-	}
-
-	if d.alertManager.IsDeploy, err = d.appDeployer.cleanup(appName, appTargetNamespace, systemProjectID); err != nil {
-		return fmt.Errorf("clean up alertmanager failed, %v", err)
-	}
-	if mgmtv3.ClusterConditionAlertingEnabled.IsTrue(newCluster) {
+		if err = d.appDeployer.isDeploySuccess(newCluster, alertutil.GetAlertManagerDaemonsetName(appName), appTargetNamespace); err != nil {
+			return err
+		}
+	} else {
+		if d.alertManager.IsDeploy, err = d.appDeployer.cleanup(appName, appTargetNamespace, systemProjectID); err != nil {
+			return fmt.Errorf("clean up alertmanager failed, %v", err)
+		}
 		mgmtv3.ClusterConditionAlertingEnabled.False(newCluster)
 	}
 
@@ -209,11 +229,14 @@ func (d *appDeployer) isDeploySuccess(cluster *mgmtv3.Cluster, appName, appTarge
 	_, err := mgmtv3.ClusterConditionAlertingEnabled.DoUntilTrue(cluster, func() (runtime.Object, error) {
 		_, err := d.statefulsets.GetNamespaced(appTargetNamespace, appName, metav1.GetOptions{})
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				time.Sleep(5 * time.Second)
+			}
 			return nil, fmt.Errorf("failed to get Alertmanager Deployment information, %v", err)
 		}
-
 		return cluster, nil
 	})
+
 	return err
 }
 
@@ -257,8 +280,8 @@ func (d *appDeployer) getSecret(secretName, secretNamespace string) *corev1.Secr
 	}
 }
 
-func (d *appDeployer) deploy(appName, appTargetNamespace, systemProjectID, systemProjectCreator string) (bool, error) {
-	_, systemProjectName := ref.Parse(systemProjectID)
+func (d *appDeployer) deploy(appName, appTargetNamespace, systemProjectID string) (bool, error) {
+	clusterName, systemProjectName := ref.Parse(systemProjectID)
 
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -296,10 +319,15 @@ func (d *appDeployer) deploy(appName, appTargetNamespace, systemProjectID, syste
 		return false, fmt.Errorf("failed to find catalog by ID %q, %v", catalogID, err)
 	}
 
+	creator, err := d.systemAccountManager.GetSystemUser(clusterName)
+	if err != nil {
+		return false, err
+	}
+
 	app = &projectv3.App{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				creatorIDAnn: systemProjectCreator,
+				creatorIDAnn: creator.Name,
 			},
 			Labels:    monitorutil.OwnedLabels(appName, appTargetNamespace, systemProjectID, monitorutil.SystemLevel),
 			Name:      appName,

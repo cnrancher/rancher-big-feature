@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: LimitRangeGroupVersionKind.Kind,
 	}
+
+	LimitRangeGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "limitranges",
+	}
 )
+
+func init() {
+	resource.Put(LimitRangeGroupVersionResource)
+}
 
 func NewLimitRange(namespace, name string, obj v1.LimitRange) *v1.LimitRange {
 	obj.APIVersion, obj.Kind = LimitRangeGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewLimitRange(namespace, name string, obj v1.LimitRange) *v1.LimitRange {
 type LimitRangeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.LimitRange
+	Items           []v1.LimitRange `json:"items"`
 }
 
 type LimitRangeHandlerFunc func(key string, obj *v1.LimitRange) (runtime.Object, error)

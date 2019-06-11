@@ -12,6 +12,7 @@ import (
 	"github.com/rancher/types/client/management/v3"
 
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type Wrapper struct {
@@ -20,6 +21,8 @@ type Wrapper struct {
 	PrtbLister            v3.ProjectRoleTemplateBindingLister
 	MultiClusterAppLister v3.MultiClusterAppLister
 	Users                 v3.UserInterface
+	GrbLister             v3.GlobalRoleBindingLister
+	GrLister              v3.GlobalRoleLister
 }
 
 const (
@@ -32,15 +35,15 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	}
 
 	var targetProjects []string
-	var accessType string
 	ma := gaccess.MemberAccess{
-		Users: w.Users,
+		Users:     w.Users,
+		GrLister:  w.GrLister,
+		GrbLister: w.GrbLister,
 	}
 
 	callerID := request.Request.Header.Get(gaccess.ImpersonateUserHeader)
 	if request.Method == http.MethodPost {
 		// create request, caller is owner/creator
-		accessType = gaccess.OwnerAccess
 		// Request is POST, hence global DNS is being created.
 		// if multiclusterapp ID is provided check access to its projects
 		mcappID := convert.ToString(data[client.GlobalDNSFieldMultiClusterAppID])
@@ -68,7 +71,7 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 		return fmt.Errorf("incorrect global DNS ID %v", request.ID)
 	}
 
-	gDNS, err := w.GlobalDNSLister.Get(split[0], split[1])
+	gDNS, err := w.GlobalDNSes.GetNamespaced(split[0], split[1], v1.GetOptions{})
 	if err != nil {
 		return err
 	}
@@ -80,7 +83,7 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 	if !ok {
 		return fmt.Errorf("GlobalDNS %v has no creatorId annotation", metaAccessor.GetName())
 	}
-	accessType, err = ma.GetAccessTypeOfCaller(callerID, creatorID, gDNS.Name, gDNS.Spec.Members)
+	accessType, err := ma.GetAccessTypeOfCaller(callerID, creatorID, gDNS.Name, gDNS.Spec.Members)
 	if err != nil {
 		return err
 	}
@@ -95,7 +98,7 @@ func (w Wrapper) Validator(request *types.APIContext, schema *types.Schema, data
 
 	originalMultiClusterApp := gDNS.Spec.MultiClusterAppName
 	newMultiClusterApp := convert.ToString(data[client.GlobalDNSFieldMultiClusterAppID])
-	if originalMultiClusterApp != newMultiClusterApp {
+	if newMultiClusterApp != "" && originalMultiClusterApp != newMultiClusterApp {
 		// check access to new multiclusterapp
 		return ma.CheckCallerAccessToTargets(request, []string{newMultiClusterApp}, client.MultiClusterAppType, &client.MultiClusterApp{})
 	}

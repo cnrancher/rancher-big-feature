@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 
 	"github.com/rancher/norman/leader"
 	"github.com/rancher/norman/pkg/k8scheck"
@@ -11,7 +12,9 @@ import (
 	"github.com/rancher/rancher/pkg/auth/tokens"
 	"github.com/rancher/rancher/pkg/clustermanager"
 	managementController "github.com/rancher/rancher/pkg/controllers/management"
+	"github.com/rancher/rancher/pkg/cron"
 	"github.com/rancher/rancher/pkg/dialer"
+	"github.com/rancher/rancher/pkg/jailer"
 	"github.com/rancher/rancher/pkg/settings"
 	"github.com/rancher/rancher/pkg/telemetry"
 	"github.com/rancher/rancher/pkg/tls"
@@ -90,7 +93,7 @@ func Run(ctx context.Context, kubeConfig rest.Config, cfg *Config) error {
 
 	auditLogWriter := audit.NewLogWriter(cfg.AuditLogPath, cfg.AuditLevel, cfg.AuditLogMaxage, cfg.AuditLogMaxbackup, cfg.AuditLogMaxsize)
 
-	if err := server.Start(ctx, cfg.HTTPListenPort, cfg.HTTPSListenPort, scaledContext, clusterManager, auditLogWriter); err != nil {
+	if err := server.Start(ctx, cfg.HTTPListenPort, cfg.HTTPSListenPort, localClusterEnabled(*cfg), scaledContext, clusterManager, auditLogWriter); err != nil {
 		return err
 	}
 
@@ -98,13 +101,19 @@ func Run(ctx context.Context, kubeConfig rest.Config, cfg *Config) error {
 		return err
 	}
 
+	if dm := os.Getenv("CATTLE_DEV_MODE"); dm == "" {
+		if err := jailer.CreateJail("driver-jail"); err != nil {
+			return err
+		}
+
+		if err := cron.StartJailSyncCron(scaledContext); err != nil {
+			return err
+		}
+	}
+
 	go leader.RunOrDie(ctx, "", "cattle-controllers", scaledContext.K8sClient, func(ctx context.Context) {
 		if scaledContext.PeerManager != nil {
 			scaledContext.PeerManager.Leader()
-		}
-
-		if err := telemetry.Start(ctx, cfg.HTTPSListenPort, scaledContext); err != nil {
-			panic(err)
 		}
 
 		management, err := scaledContext.NewManagementContext()
@@ -118,6 +127,10 @@ func Run(ctx context.Context, kubeConfig rest.Config, cfg *Config) error {
 		}
 
 		if err := addData(management, *cfg); err != nil {
+			panic(err)
+		}
+
+		if err := telemetry.Start(ctx, cfg.HTTPSListenPort, scaledContext); err != nil {
 			panic(err)
 		}
 
@@ -148,7 +161,7 @@ func addData(management *config.ManagementContext, cfg Config) error {
 		return err
 	}
 
-	if cfg.AddLocal == "true" || (cfg.AddLocal == "auto" && !cfg.Embedded) {
+	if localClusterEnabled(cfg) {
 		if err := addLocalCluster(cfg.Embedded, adminName, management); err != nil {
 			return err
 		}
@@ -162,7 +175,7 @@ func addData(management *config.ManagementContext, cfg Config) error {
 		return err
 	}
 
-	if err := addCatalogs(management); err != nil {
+	if err := syncCatalogs(management); err != nil {
 		return err
 	}
 
@@ -183,4 +196,11 @@ func addData(management *config.ManagementContext, cfg Config) error {
 	}
 
 	return addMachineDrivers(management)
+}
+
+func localClusterEnabled(cfg Config) bool {
+	if cfg.AddLocal == "true" || (cfg.AddLocal == "auto" && !cfg.Embedded) {
+		return true
+	}
+	return false
 }

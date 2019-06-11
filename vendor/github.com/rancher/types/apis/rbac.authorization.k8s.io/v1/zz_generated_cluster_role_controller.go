@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -28,7 +29,17 @@ var (
 		Namespaced:   false,
 		Kind:         ClusterRoleGroupVersionKind.Kind,
 	}
+
+	ClusterRoleGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "clusterroles",
+	}
 )
+
+func init() {
+	resource.Put(ClusterRoleGroupVersionResource)
+}
 
 func NewClusterRole(namespace, name string, obj v1.ClusterRole) *v1.ClusterRole {
 	obj.APIVersion, obj.Kind = ClusterRoleGroupVersionKind.ToAPIVersionAndKind()
@@ -40,7 +51,7 @@ func NewClusterRole(namespace, name string, obj v1.ClusterRole) *v1.ClusterRole 
 type ClusterRoleList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.ClusterRole
+	Items           []v1.ClusterRole `json:"items"`
 }
 
 type ClusterRoleHandlerFunc func(key string, obj *v1.ClusterRole) (runtime.Object, error)

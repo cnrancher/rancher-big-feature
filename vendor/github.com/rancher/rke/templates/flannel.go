@@ -75,7 +75,9 @@ data:
     {
       "Network": "{{.ClusterCIDR}}",
       "Backend": {
-        "Type": "{{.FlannelBackend.Type}}"
+        "Type": "{{.FlannelBackend.Type}}",
+        "VNI": {{.FlannelBackend.VNI}},
+        "Port": {{.FlannelBackend.Port}}
       }
     }
 ---
@@ -157,7 +159,7 @@ spec:
           mountPath: /host/opt/cni/bin/
       hostNetwork: true
       tolerations:
-      {{- if eq .ClusterVersion "v1.12" }}
+      {{- if ge .ClusterVersion "v1.12" }}
       - operator: Exists
         effect: NoSchedule
       - operator: Exists

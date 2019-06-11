@@ -5,6 +5,7 @@ import (
 
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,7 +30,17 @@ var (
 
 		Kind: SecretGroupVersionKind.Kind,
 	}
+
+	SecretGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "secrets",
+	}
 )
+
+func init() {
+	resource.Put(SecretGroupVersionResource)
+}
 
 func NewSecret(namespace, name string, obj v1.Secret) *v1.Secret {
 	obj.APIVersion, obj.Kind = SecretGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewSecret(namespace, name string, obj v1.Secret) *v1.Secret {
 type SecretList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.Secret
+	Items           []v1.Secret `json:"items"`
 }
 
 type SecretHandlerFunc func(key string, obj *v1.Secret) (runtime.Object, error)

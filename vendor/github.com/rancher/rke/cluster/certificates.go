@@ -17,6 +17,7 @@ import (
 
 func SetUpAuthentication(ctx context.Context, kubeCluster, currentCluster *Cluster, fullState *FullState) error {
 	if kubeCluster.AuthnStrategies[AuthnX509Provider] {
+		compareKubeAPICerts(ctx, kubeCluster, currentCluster)
 		kubeCluster.Certificates = fullState.DesiredState.CertificatesBundle
 		return nil
 	}
@@ -200,6 +201,39 @@ func RotateRKECertificates(ctx context.Context, c *Cluster, flags ExternalFlags,
 		}
 	}
 	clusterState.DesiredState.CertificatesBundle = c.Certificates
-	clusterState.DesiredState.RancherKubernetesEngineConfig = &c.RancherKubernetesEngineConfig
 	return nil
+}
+
+func GetClusterCertsFromNodes(ctx context.Context, kubeCluster *Cluster) (map[string]pki.CertificatePKI, error) {
+	log.Infof(ctx, "[certificates] Fetching kubernetes certificates from nodes")
+	var err error
+	backupHosts := hosts.GetUniqueHostList(kubeCluster.EtcdHosts, kubeCluster.ControlPlaneHosts, nil)
+	certificates := map[string]pki.CertificatePKI{}
+	for _, host := range backupHosts {
+		certificates, err = pki.FetchCertificatesFromHost(ctx, kubeCluster.EtcdHosts, host, kubeCluster.SystemImages.Alpine, kubeCluster.LocalKubeConfigPath, kubeCluster.PrivateRegistriesMap)
+		if certificates != nil {
+			// Handle service account token key issue
+			kubeAPICert := certificates[pki.KubeAPICertName]
+			if certificates[pki.ServiceAccountTokenKeyName].Key == nil {
+				log.Infof(ctx, "[certificates] Creating service account token key")
+				certificates[pki.ServiceAccountTokenKeyName] = pki.ToCertObject(pki.ServiceAccountTokenKeyName, pki.ServiceAccountTokenKeyName, "", kubeAPICert.Certificate, kubeAPICert.Key, nil)
+			}
+			return certificates, nil
+		}
+	}
+	// reporting the last error only.
+	return nil, err
+}
+
+func compareKubeAPICerts(ctx context.Context, kubeCluster, currentCluster *Cluster) {
+	// checking if kubeapi cert got changed then we set force deploy to true
+	// to force deploying the kubeapi cert with new SANs
+	if currentCluster != nil {
+		currentKubeAPICert := currentCluster.Certificates[pki.KubeAPICertName]
+		desiredKubeAPICert := kubeCluster.Certificates[pki.KubeAPICertName]
+		if desiredKubeAPICert.CertificatePEM != currentKubeAPICert.CertificatePEM {
+			log.Infof(ctx, "[certificates] KubeAPI certificate changed, force deploying certs")
+			kubeCluster.ForceDeployCerts = true
+		}
+	}
 }

@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"fmt"
 	"reflect"
 
 	"github.com/pkg/errors"
@@ -9,6 +10,7 @@ import (
 	mgmtv3 "github.com/rancher/types/apis/management.cattle.io/v3"
 	projectv3 "github.com/rancher/types/apis/project.cattle.io/v3"
 	"github.com/sirupsen/logrus"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -23,22 +25,27 @@ func (h *operatorHandler) syncCluster(key string, obj *mgmtv3.Cluster) (runtime.
 	if obj == nil || obj.DeletionTimestamp != nil || obj.Name != h.clusterName {
 		return obj, nil
 	}
+
+	if !mgmtv3.ClusterConditionAgentDeployed.IsTrue(obj) {
+		return obj, nil
+	}
+
 	var newCluster *mgmtv3.Cluster
 	var err error
 	//should deploy
 	if obj.Spec.EnableClusterAlerting || obj.Spec.EnableClusterMonitoring {
-		newObj, err := mgmtv3.ClusterConditionPrometheusOperatorDeployed.DoUntilTrue(obj, func() (runtime.Object, error) {
+		newObj, err := mgmtv3.ClusterConditionPrometheusOperatorDeployed.Do(obj, func() (runtime.Object, error) {
 			cpy := obj.DeepCopy()
 			return cpy, deploySystemMonitor(cpy, h.app)
 		})
 		if err != nil {
-			logrus.WithError(err).Info("deploy prometheus operator error")
+			logrus.Warnf("deploy prometheus operator error, %v", err)
 		}
 		newCluster = newObj.(*mgmtv3.Cluster)
 	} else { // should withdraw
 		newCluster = obj.DeepCopy()
 		if err = withdrawSystemMonitor(newCluster, h.app); err != nil {
-			logrus.WithError(err).Info("withdraw prometheus operator error")
+			logrus.Warnf("withdraw prometheus operator error, %v", err)
 		}
 	}
 
@@ -62,21 +69,25 @@ func (h *operatorHandler) syncProject(key string, project *mgmtv3.Project) (runt
 		return nil, errors.Wrapf(err, "failed to find Cluster %s", clusterID)
 	}
 
+	if !mgmtv3.ClusterConditionAgentDeployed.IsTrue(cluster) {
+		return project, nil
+	}
+
 	var newCluster *mgmtv3.Cluster
 	//should deploy
-	if project.Spec.EnableProjectMonitoring {
-		newObj, err := mgmtv3.ClusterConditionPrometheusOperatorDeployed.DoUntilTrue(cluster, func() (runtime.Object, error) {
+	if cluster.Spec.EnableClusterAlerting || project.Spec.EnableProjectMonitoring {
+		newObj, err := mgmtv3.ClusterConditionPrometheusOperatorDeployed.Do(cluster, func() (runtime.Object, error) {
 			cpy := cluster.DeepCopy()
 			return cpy, deploySystemMonitor(cpy, h.app)
 		})
 		if err != nil {
-			logrus.WithError(err).Info("deploy prometheus operator error")
+			logrus.Warnf("deploy prometheus operator error, %v", err)
 		}
 		newCluster = newObj.(*mgmtv3.Cluster)
 	} else { // should withdraw
 		newCluster = cluster.DeepCopy()
 		if err = withdrawSystemMonitor(newCluster, h.app); err != nil {
-			logrus.WithError(err).Info("withdraw prometheus operator error")
+			logrus.Warnf("withdraw prometheus operator error, %v", err)
 		}
 	}
 
@@ -90,8 +101,8 @@ func (h *operatorHandler) syncProject(key string, project *mgmtv3.Project) (runt
 }
 
 func withdrawSystemMonitor(cluster *mgmtv3.Cluster, app *appHandler) error {
-	isAlertingDisabling := mgmtv3.MonitoringConditionAlertmaanagerDeployed.IsFalse(cluster) ||
-		mgmtv3.MonitoringConditionAlertmaanagerDeployed.GetStatus(cluster) == ""
+	isAlertingDisabling := mgmtv3.ClusterConditionAlertingEnabled.IsFalse(cluster) ||
+		mgmtv3.ClusterConditionAlertingEnabled.GetStatus(cluster) == ""
 	isClusterMonitoringDisabling := mgmtv3.ClusterConditionMonitoringEnabled.IsFalse(cluster) ||
 		mgmtv3.ClusterConditionMonitoringEnabled.GetStatus(cluster) == ""
 	//status false and empty should withdraw. when status unknown, it means the deployment has error while deploying apps
@@ -113,6 +124,8 @@ func withdrawSystemMonitor(cluster *mgmtv3.Cluster, app *appHandler) error {
 		}
 
 		mgmtv3.ClusterConditionPrometheusOperatorDeployed.False(cluster)
+		mgmtv3.ClusterConditionPrometheusOperatorDeployed.Reason(cluster, "")
+		mgmtv3.ClusterConditionPrometheusOperatorDeployed.Message(cluster, "")
 	}
 
 	return nil
@@ -121,7 +134,7 @@ func withdrawSystemMonitor(cluster *mgmtv3.Cluster, app *appHandler) error {
 func allOwnedProjectsMonitoringDisabling(projectClient mgmtv3.ProjectInterface) (bool, error) {
 	ownedProjectList, err := projectClient.List(metav1.ListOptions{})
 	if err != nil {
-		return false, errors.Wrap(err, "failed to list all projects")
+		return false, err
 	}
 
 	for _, ownedProject := range ownedProjectList.Items {
@@ -157,8 +170,17 @@ func deploySystemMonitor(cluster *mgmtv3.Cluster, app *appHandler) (backErr erro
 		"apiGroup":     monitoring.APIVersion.Group,
 		"nameOverride": "prometheus-operator",
 	}
-	annotations := monitoring.CopyCreatorID(nil, cluster.Annotations)
-	annotations["cluster.cattle.io/addon"] = appName
+
+	creator, err := app.systemAccountManager.GetSystemUser(cluster.Name)
+	if err != nil {
+		return err
+	}
+
+	annotations := map[string]string{
+		"cluster.cattle.io/addon": appName,
+		creatorIDAnno:             creator.Name,
+	}
+
 	targetApp := &projectv3.App{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: annotations,
@@ -175,7 +197,17 @@ func deploySystemMonitor(cluster *mgmtv3.Cluster, app *appHandler) (backErr erro
 		},
 	}
 
-	err = monitoring.DeployApp(app.cattleAppClient, appDeployProjectID, targetApp)
+	// redeploy operator App forcibly if cannot find the workload
+	var forceRedeploy bool
+	appWorkload, err := app.agentDeploymentClient.GetNamespaced(appTargetNamespace, fmt.Sprintf("prometheus-operator-%s", appName), metav1.GetOptions{})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return errors.Wrapf(err, "failed to get deployment %s/prometheus-operator-%s", appTargetNamespace, appName)
+	}
+	if appWorkload == nil || appWorkload.Name == "" || appWorkload.DeletionTimestamp != nil {
+		forceRedeploy = true
+	}
+
+	_, err = monitoring.DeployApp(app.cattleAppClient, appDeployProjectID, targetApp, forceRedeploy)
 	if err != nil {
 		return errors.Wrap(err, "failed to ensure prometheus operator app")
 	}

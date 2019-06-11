@@ -6,6 +6,7 @@ import (
 	"github.com/coreos/prometheus-operator/pkg/client/monitoring/v1"
 	"github.com/rancher/norman/controller"
 	"github.com/rancher/norman/objectclient"
+	"github.com/rancher/norman/resource"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -29,7 +30,17 @@ var (
 
 		Kind: ServiceMonitorGroupVersionKind.Kind,
 	}
+
+	ServiceMonitorGroupVersionResource = schema.GroupVersionResource{
+		Group:    GroupName,
+		Version:  Version,
+		Resource: "servicemonitors",
+	}
 )
+
+func init() {
+	resource.Put(ServiceMonitorGroupVersionResource)
+}
 
 func NewServiceMonitor(namespace, name string, obj v1.ServiceMonitor) *v1.ServiceMonitor {
 	obj.APIVersion, obj.Kind = ServiceMonitorGroupVersionKind.ToAPIVersionAndKind()
@@ -41,7 +52,7 @@ func NewServiceMonitor(namespace, name string, obj v1.ServiceMonitor) *v1.Servic
 type ServiceMonitorList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []v1.ServiceMonitor
+	Items           []v1.ServiceMonitor `json:"items"`
 }
 
 type ServiceMonitorHandlerFunc func(key string, obj *v1.ServiceMonitor) (runtime.Object, error)

@@ -153,11 +153,18 @@ func (c *jenkinsPipelineConverter) convertPipelineExecutionToPipelineScript() (s
 		pipelinebuffer.WriteString(c.convertStage(j))
 		pipelinebuffer.WriteString("\n")
 		for k := range stage.Steps {
-			container := c.getStepContainer(j, k)
+			container, err := c.getStepContainer(j, k)
+			if err != nil {
+				return "", err
+			}
 			pod.Spec.Containers = append(pod.Spec.Containers, container)
 		}
 	}
-	pod.Spec.Containers = append(pod.Spec.Containers, c.getAgentContainer())
+	agentContainer, err := c.getAgentContainer()
+	if err != nil {
+		return "", err
+	}
+	pod.Spec.Containers = append(pod.Spec.Containers, agentContainer)
 	timeout := utils.DefaultTimeout
 	if c.execution.Spec.PipelineConfig.Timeout > 0 {
 		timeout = c.execution.Spec.PipelineConfig.Timeout
@@ -261,14 +268,7 @@ func (c *jenkinsPipelineConverter) injectGitCaCert(pod *v1.Pod) {
 	}
 	for i, container := range pod.Spec.Containers {
 		if container.Name == utils.JenkinsAgentContainerName {
-			pod.Spec.Containers[i].Env = append(pod.Spec.Containers[i].Env, v1.EnvVar{
-				Name:  "GIT_SSL_CAINFO",
-				Value: utils.GitCaCertPath + "/ca.crt",
-			})
-			pod.Spec.Containers[i].VolumeMounts = append(pod.Spec.Containers[i].VolumeMounts, v1.VolumeMount{
-				Name:      utils.GitCaCertVolumeName,
-				MountPath: utils.GitCaCertPath,
-			})
+			c.injectGitCaCertToContainer(&pod.Spec.Containers[i])
 			break
 		}
 	}
@@ -280,39 +280,71 @@ func (c *jenkinsPipelineConverter) injectGitCaCert(pod *v1.Pod) {
 	})
 }
 
-func (c *jenkinsPipelineConverter) injectAgentResources(container *v1.Container) {
-	injectResources(container, c.opts.executorCPULimit, c.opts.executorCPURequest, c.opts.executorMemoryLimit, c.opts.executorMemoryRequest)
+func (c *jenkinsPipelineConverter) injectGitCaCertToContainer(container *v1.Container) {
+	container.Env = append(container.Env, v1.EnvVar{
+		Name:  "GIT_SSL_CAINFO",
+		Value: utils.GitCaCertPath + "/ca.crt",
+	})
+	container.VolumeMounts = append(container.VolumeMounts, v1.VolumeMount{
+		Name:      utils.GitCaCertVolumeName,
+		MountPath: utils.GitCaCertPath,
+	})
 }
 
-func injectSetpContainerResources(container *v1.Container, step *v3.Step) {
-	injectResources(container, step.CPULimit, step.CPURequest, step.MemoryLimit, step.MemoryRequest)
+func (c *jenkinsPipelineConverter) injectAgentResources(container *v1.Container) error {
+	return injectResources(container, c.opts.executorCPULimit, c.opts.executorCPURequest, c.opts.executorMemoryLimit, c.opts.executorMemoryRequest)
 }
 
-func injectResources(container *v1.Container, cpuLimit string, cpuRequest string, memoryLimit string, memoryRequest string) {
+func injectSetpContainerResources(container *v1.Container, step *v3.Step) error {
+	return injectResources(container, step.CPULimit, step.CPURequest, step.MemoryLimit, step.MemoryRequest)
+}
+
+func injectResources(container *v1.Container, cpuLimit string, cpuRequest string, memoryLimit string, memoryRequest string) error {
 	if cpuLimit != "" {
 		if container.Resources.Limits == nil {
 			container.Resources.Limits = v1.ResourceList{}
 		}
-		container.Resources.Limits[v1.ResourceCPU] = resource.MustParse(cpuLimit)
+		quantity, err := resource.ParseQuantity(cpuLimit)
+		if err != nil {
+			return errors.Wrapf(err, "invalid CPU limit %q", cpuLimit)
+		}
+
+		container.Resources.Limits[v1.ResourceCPU] = quantity
 	}
 	if cpuRequest != "" {
 		if container.Resources.Requests == nil {
 			container.Resources.Requests = v1.ResourceList{}
 		}
-		container.Resources.Requests[v1.ResourceCPU] = resource.MustParse(cpuRequest)
+		quantity, err := resource.ParseQuantity(cpuRequest)
+		if err != nil {
+			return errors.Wrapf(err, "invalid CPU request %q", cpuRequest)
+		}
+
+		container.Resources.Requests[v1.ResourceCPU] = quantity
 	}
 	if memoryLimit != "" {
 		if container.Resources.Limits == nil {
 			container.Resources.Limits = v1.ResourceList{}
 		}
-		container.Resources.Limits[v1.ResourceMemory] = resource.MustParse(memoryLimit)
+		quantity, err := resource.ParseQuantity(memoryLimit)
+		if err != nil {
+			return errors.Wrapf(err, "invalid memory limit %q", memoryLimit)
+		}
+
+		container.Resources.Limits[v1.ResourceMemory] = quantity
 	}
 	if memoryRequest != "" {
 		if container.Resources.Requests == nil {
 			container.Resources.Requests = v1.ResourceList{}
 		}
-		container.Resources.Requests[v1.ResourceMemory] = resource.MustParse(memoryRequest)
+		quantity, err := resource.ParseQuantity(memoryRequest)
+		if err != nil {
+			return errors.Wrapf(err, "invalid memory request %q", memoryRequest)
+		}
+
+		container.Resources.Requests[v1.ResourceMemory] = quantity
 	}
+	return nil
 }
 
 func getImagePullSecretNames(secretLister apiv1.SecretLister, execution *v3.PipelineExecution) ([]string, error) {
